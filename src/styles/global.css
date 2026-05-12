@@ -2,6 +2,8 @@
 @import "@fontsource-variable/newsreader";
 @import "@fontsource-variable/jetbrains-mono";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --color-cream: #FAF7F0;
   --color-ink: #1A1715;
@@ -11,6 +13,14 @@
 
   --font-serif: "Newsreader Variable", Georgia, serif;
   --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+}
+
+.dark {
+  --color-cream: #1A1715;
+  --color-paper: #221E1A;
+  --color-ink: #F2EDE3;
+  --color-muted: #8A8480;
+  --color-maroon: #C86478;
 }
 
 html {
@@ -37,7 +47,7 @@ html {
   margin-top: 3.5rem;
   margin-bottom: 1.25rem;
   padding-top: 3.5rem;
-  border-top: 1px solid rgba(26, 23, 21, 0.1);
+  border-top: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
 }
 
 .prose h3 {
@@ -75,7 +85,7 @@ html {
   padding: 1.5rem;
   overflow-x: auto;
   margin-bottom: 1.5rem;
-  border: 1px solid rgba(26, 23, 21, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
 }
 
 .prose pre code {
@@ -113,7 +123,7 @@ html {
 
 .prose hr {
   border: none;
-  border-top: 1px solid rgba(26, 23, 21, 0.1);
+  border-top: 1px solid color-mix(in srgb, var(--color-ink) 10%, transparent);
   margin: 3rem 0;
 }
 
@@ -133,12 +143,12 @@ html {
   letter-spacing: 0.06em;
   color: var(--color-muted);
   padding: 0.5rem 1rem 0.5rem 0;
-  border-bottom: 1px solid rgba(26, 23, 21, 0.15);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ink) 15%, transparent);
 }
 
 .prose td {
   padding: 0.625rem 1rem 0.625rem 0;
-  border-bottom: 1px solid rgba(26, 23, 21, 0.06);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-ink) 6%, transparent);
   vertical-align: top;
 }
 
@@ -151,7 +161,7 @@ html {
 .mermaid-diagram {
   background: var(--color-paper);
   padding: 2rem 1.5rem;
-  border: 1px solid rgba(26, 23, 21, 0.08);
+  border: 1px solid color-mix(in srgb, var(--color-ink) 8%, transparent);
   margin-bottom: 1.5rem;
   overflow-x: auto;
   text-align: center;

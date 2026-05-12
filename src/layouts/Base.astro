@@ -20,10 +20,21 @@ const pageTitle = title === 'Home' ? 'James Londrigan' : `${title} — James Lon
     <meta name="description" content={description} />
     <title>{pageTitle}</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <script is:inline>
+      if (window.matchMedia('(prefers-color-scheme: dark)').matches) {
+        document.documentElement.classList.add('dark');
+      }
+    </script>
   </head>
   <body class="min-h-screen flex flex-col font-serif bg-cream text-ink">
+    <a
+      href="#main-content"
+      class="fixed top-0 left-0 z-50 -translate-y-full focus:translate-y-0 bg-cream text-ink border-b border-r border-ink/20 px-6 py-3 text-sm font-mono transition-transform duration-150"
+    >
+      Skip to content
+    </a>
     <Nav />
-    <main class="flex-1">
+    <main id="main-content" class="flex-1">
       <slot />
     </main>
     <Footer />

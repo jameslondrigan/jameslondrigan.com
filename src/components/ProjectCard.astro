@@ -10,7 +10,7 @@ const { title, description, slug, tags = [] } = Astro.props;
 ---
 
 <a href={`/projects/${slug}`} class="group block border border-ink/10 p-6 hover:border-maroon/40 transition-colors">
-  <h3 class="text-lg mb-2 leading-snug group-hover:text-maroon transition-colors">{title}</h3>
+  <h2 class="text-lg mb-2 leading-snug group-hover:text-maroon transition-colors">{title}</h2>
   <p class="text-sm text-muted leading-relaxed mb-4">{description}</p>
   {tags.length > 0 && (
     <ul class="flex flex-wrap gap-2">

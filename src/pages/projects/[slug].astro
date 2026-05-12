@@ -109,32 +109,45 @@ const hasMeta = d.course || d.semester || d.team || d.role;
 </Base>
 
 <script>
-  import mermaid from 'mermaid';
-
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'neutral',
-    themeVariables: {
-      background: '#F2EDE3',
-      mainBkg: '#F2EDE3',
-      nodeBorder: '#6B6560',
-      clusterBkg: '#FAF7F0',
-      titleColor: '#1A1715',
-      edgeLabelBackground: '#FAF7F0',
-      lineColor: '#6B6560',
-      primaryColor: '#F2EDE3',
-      primaryTextColor: '#1A1715',
-      primaryBorderColor: '#6B6560',
-    },
-    fontFamily: '"JetBrains Mono Variable", ui-monospace, monospace',
-  });
-
   document.addEventListener('DOMContentLoaded', async () => {
     // Shiki wraps in pre[data-language]; plain MDX uses code.language-mermaid
-    const pres = Array.from(new Set([
+    const pres = [
       ...document.querySelectorAll<HTMLPreElement>('pre[data-language="mermaid"]'),
       ...document.querySelectorAll<HTMLPreElement>('pre:has(> code.language-mermaid)'),
-    ]));
+    ];
+    if (pres.length === 0) return;
+
+    const mermaid = (await import('mermaid')).default;
+    const isDark = document.documentElement.classList.contains('dark');
+
+    mermaid.initialize({
+      startOnLoad: false,
+      theme: 'neutral',
+      themeVariables: isDark ? {
+        background: '#221E1A',
+        mainBkg: '#221E1A',
+        nodeBorder: '#8A8480',
+        clusterBkg: '#1A1715',
+        titleColor: '#F2EDE3',
+        edgeLabelBackground: '#1A1715',
+        lineColor: '#8A8480',
+        primaryColor: '#221E1A',
+        primaryTextColor: '#F2EDE3',
+        primaryBorderColor: '#8A8480',
+      } : {
+        background: '#F2EDE3',
+        mainBkg: '#F2EDE3',
+        nodeBorder: '#6B6560',
+        clusterBkg: '#FAF7F0',
+        titleColor: '#1A1715',
+        edgeLabelBackground: '#FAF7F0',
+        lineColor: '#6B6560',
+        primaryColor: '#F2EDE3',
+        primaryTextColor: '#1A1715',
+        primaryBorderColor: '#6B6560',
+      },
+      fontFamily: '"JetBrains Mono Variable", ui-monospace, monospace',
+    });
 
     for (const pre of pres) {
       const code = pre.querySelector('code');
@@ -146,6 +159,7 @@ const hasMeta = d.course || d.semester || d.team || d.role;
         const { svg } = await mermaid.render(id, content);
         const wrapper = document.createElement('div');
         wrapper.className = 'mermaid-diagram';
+        wrapper.setAttribute('aria-hidden', 'true');
         wrapper.innerHTML = svg;
         pre.replaceWith(wrapper);
       } catch {
