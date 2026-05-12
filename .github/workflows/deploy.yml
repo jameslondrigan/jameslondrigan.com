@@ -1,0 +1,67 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+
+concurrency:
+  group: deploy
+  cancel-in-progress: true
+
+permissions:
+  id-token: write   # required for OIDC JWT
+  contents: read
+
+env:
+  AWS_REGION:       us-east-1
+  SITE_BUCKET:      jameslondrigan-site-481207241421
+  DISTRIBUTION_ID:  E3KRJY126FWJAS
+  DEPLOY_ROLE_ARN:  arn:aws:iam::481207241421:role/jameslondrigan-site-deploy
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ env.DEPLOY_ROLE_ARN }}
+          role-session-name: github-actions-deploy
+          aws-region:        ${{ env.AWS_REGION }}
+
+      # Hashed assets (/_astro/*.js, /_astro/*.css) get a 1-year immutable cache.
+      # Astro content-hashes these filenames, so old URLs never collide with new content.
+      - name: Sync hashed assets
+        run: |
+          aws s3 sync dist/_astro/ s3://${{ env.SITE_BUCKET }}/_astro/ \
+            --cache-control "public, max-age=31536000, immutable"
+
+      # Everything else (HTML, public/ assets) gets no-cache so CloudFront
+      # fetches fresh content on the next request after invalidation.
+      # --delete removes orphaned files from previous builds.
+      - name: Sync site files
+        run: |
+          aws s3 sync dist/ s3://${{ env.SITE_BUCKET }}/ \
+            --exclude "_astro/*" \
+            --cache-control "no-cache" \
+            --delete
+
+      - name: Invalidate CloudFront
+        run: |
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ env.DISTRIBUTION_ID }} \
+            --paths "/*"
