@@ -56,6 +56,18 @@ resource "aws_s3_bucket_policy" "site" {
   depends_on = [aws_s3_bucket_public_access_block.site]
 }
 
+# ── CloudFront Function: directory index rewrite ────────────────────────────
+# /projects   → /projects/index.html
+# /projects/  → /projects/index.html
+# Paths with a file extension are passed through unchanged.
+
+resource "aws_cloudfront_function" "viewer_request" {
+  name    = "jameslondrigan-viewer-request"
+  runtime = "cloudfront-js-2.0"
+  publish = true
+  code    = file("${path.module}/viewer-request.js")
+}
+
 # ── CloudFront distribution ──────────────────────────────────────────────────
 
 resource "aws_cloudfront_distribution" "site" {
@@ -88,6 +100,11 @@ resource "aws_cloudfront_distribution" "site" {
     min_ttl     = 0
     default_ttl = 86400
     max_ttl     = 31536000
+
+    function_association {
+      event_type   = "viewer-request"
+      function_arn = aws_cloudfront_function.viewer_request.arn
+    }
   }
 
   # Private S3 returns 403 for missing objects; map to 404 page.
@@ -114,10 +131,11 @@ resource "aws_cloudfront_distribution" "site" {
 # Existing CRA site stays live until that flip.
 
 resource "aws_route53_record" "apex_a" {
-  count   = var.manage_dns ? 1 : 0
-  zone_id = var.route53_zone_id
-  name    = var.domain_name
-  type    = "A"
+  count           = var.manage_dns ? 1 : 0
+  zone_id         = var.route53_zone_id
+  name            = var.domain_name
+  type            = "A"
+  allow_overwrite = true
 
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name
@@ -127,10 +145,11 @@ resource "aws_route53_record" "apex_a" {
 }
 
 resource "aws_route53_record" "apex_aaaa" {
-  count   = var.manage_dns ? 1 : 0
-  zone_id = var.route53_zone_id
-  name    = var.domain_name
-  type    = "AAAA"
+  count           = var.manage_dns ? 1 : 0
+  zone_id         = var.route53_zone_id
+  name            = var.domain_name
+  type            = "AAAA"
+  allow_overwrite = true
 
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name
@@ -140,10 +159,11 @@ resource "aws_route53_record" "apex_aaaa" {
 }
 
 resource "aws_route53_record" "www_a" {
-  count   = var.manage_dns ? 1 : 0
-  zone_id = var.route53_zone_id
-  name    = "www.${var.domain_name}"
-  type    = "A"
+  count           = var.manage_dns ? 1 : 0
+  zone_id         = var.route53_zone_id
+  name            = "www.${var.domain_name}"
+  type            = "A"
+  allow_overwrite = true
 
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name
@@ -153,10 +173,11 @@ resource "aws_route53_record" "www_a" {
 }
 
 resource "aws_route53_record" "www_aaaa" {
-  count   = var.manage_dns ? 1 : 0
-  zone_id = var.route53_zone_id
-  name    = "www.${var.domain_name}"
-  type    = "AAAA"
+  count           = var.manage_dns ? 1 : 0
+  zone_id         = var.route53_zone_id
+  name            = "www.${var.domain_name}"
+  type            = "AAAA"
+  allow_overwrite = true
 
   alias {
     name                   = aws_cloudfront_distribution.site.domain_name
