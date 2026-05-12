@@ -18,3 +18,4 @@ override.tf.json
 # Bootstrap local state is intentionally committed
 !infra/bootstrap/terraform.tfstate
 !infra/bootstrap/terraform.tfstate.backup
+.claude/
