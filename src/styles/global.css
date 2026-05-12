@@ -1,0 +1,163 @@
+@import "tailwindcss";
+@import "@fontsource-variable/newsreader";
+@import "@fontsource-variable/jetbrains-mono";
+
+@theme {
+  --color-cream: #FAF7F0;
+  --color-ink: #1A1715;
+  --color-maroon: #6B1F2E;
+  --color-paper: #F2EDE3;
+  --color-muted: #6B6560;
+
+  --font-serif: "Newsreader Variable", Georgia, serif;
+  --font-mono: "JetBrains Mono Variable", ui-monospace, monospace;
+}
+
+html {
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ─── Prose ─────────────────────────────────────────────── */
+
+.prose {
+  color: var(--color-ink);
+  line-height: 1.75;
+  font-size: 1.0625rem;
+}
+
+.prose h2 {
+  font-family: var(--font-mono);
+  font-size: 0.6875rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: var(--color-muted);
+  margin-top: 3.5rem;
+  margin-bottom: 1.25rem;
+  padding-top: 3.5rem;
+  border-top: 1px solid rgba(26, 23, 21, 0.1);
+}
+
+.prose h3 {
+  font-size: 1.125rem;
+  font-weight: 400;
+  margin-top: 2rem;
+  margin-bottom: 0.75rem;
+}
+
+.prose p {
+  margin-bottom: 1.5rem;
+}
+
+.prose a {
+  color: var(--color-maroon);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+
+.prose a:hover {
+  text-decoration-thickness: 2px;
+}
+
+.prose code:not(pre code) {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: var(--color-paper);
+  padding: 0.125em 0.375em;
+  border-radius: 2px;
+}
+
+.prose pre {
+  background: var(--color-paper);
+  padding: 1.5rem;
+  overflow-x: auto;
+  margin-bottom: 1.5rem;
+  border: 1px solid rgba(26, 23, 21, 0.08);
+}
+
+.prose pre code {
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+  background: none;
+  padding: 0;
+}
+
+.prose ul,
+.prose ol {
+  padding-left: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.prose ul { list-style-type: disc; }
+.prose ol { list-style-type: decimal; }
+
+.prose li {
+  margin-bottom: 0.5rem;
+  line-height: 1.625;
+}
+
+.prose blockquote {
+  border-left: 2px solid var(--color-maroon);
+  padding-left: 1.5rem;
+  color: var(--color-muted);
+  font-style: italic;
+  margin: 2rem 0;
+}
+
+.prose strong {
+  font-weight: 600;
+}
+
+.prose hr {
+  border: none;
+  border-top: 1px solid rgba(26, 23, 21, 0.1);
+  margin: 3rem 0;
+}
+
+.prose table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-bottom: 1.5rem;
+  font-size: 0.9375rem;
+}
+
+.prose th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--color-muted);
+  padding: 0.5rem 1rem 0.5rem 0;
+  border-bottom: 1px solid rgba(26, 23, 21, 0.15);
+}
+
+.prose td {
+  padding: 0.625rem 1rem 0.625rem 0;
+  border-bottom: 1px solid rgba(26, 23, 21, 0.06);
+  vertical-align: top;
+}
+
+.prose tr:last-child td {
+  border-bottom: none;
+}
+
+/* ─── Mermaid ────────────────────────────────────────────── */
+
+.mermaid-diagram {
+  background: var(--color-paper);
+  padding: 2rem 1.5rem;
+  border: 1px solid rgba(26, 23, 21, 0.08);
+  margin-bottom: 1.5rem;
+  overflow-x: auto;
+  text-align: center;
+}
+
+.mermaid-diagram svg {
+  max-width: 100%;
+  height: auto;
+}

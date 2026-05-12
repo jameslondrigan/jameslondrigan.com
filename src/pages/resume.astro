@@ -1,0 +1,79 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Resume">
+  <div class="max-w-3xl mx-auto px-6 py-16">
+    <!-- Header -->
+    <div class="flex items-start justify-between mb-12">
+      <div>
+        <p class="text-xs font-mono text-muted uppercase tracking-widest mb-2">Resume</p>
+        <h1 class="text-4xl">James Londrigan</h1>
+      </div>
+      <a
+        href="/resume.pdf"
+        class="text-sm font-mono text-maroon border border-maroon/30 px-4 py-2 hover:bg-maroon hover:text-cream transition-colors shrink-0 ml-6"
+      >
+        Download PDF ↓
+      </a>
+    </div>
+
+    <!-- Contact -->
+    <div class="flex flex-wrap gap-x-6 gap-y-1 text-sm font-mono text-muted mb-16">
+      <span>jclond1@gmail.com</span>
+      <a href="https://linkedin.com/in/james-londrigan" class="hover:text-maroon transition-colors">
+        linkedin.com/in/james-londrigan
+      </a>
+      <a href="https://github.com/jameslondrigan" class="hover:text-maroon transition-colors">
+        github.com/jameslondrigan
+      </a>
+    </div>
+
+    <!-- Education -->
+    <section class="mb-12">
+      <p class="text-xs font-mono text-muted uppercase tracking-widest mb-6 pb-2 border-b border-ink/10">
+        Education
+      </p>
+      <div class="flex items-baseline justify-between">
+        <div>
+          <h2 class="text-base font-normal mb-1">Texas A&M University</h2>
+          <p class="text-muted text-sm">B.B.A. Management Information Systems</p>
+        </div>
+        <span class="text-sm font-mono text-muted shrink-0 ml-4">Expected [Year]</span>
+      </div>
+    </section>
+
+    <!-- Experience -->
+    <section class="mb-12">
+      <p class="text-xs font-mono text-muted uppercase tracking-widest mb-6 pb-2 border-b border-ink/10">
+        Experience
+      </p>
+      <p class="text-muted text-sm italic">[Experience entries — to be filled in]</p>
+    </section>
+
+    <!-- Projects -->
+    <section class="mb-12">
+      <p class="text-xs font-mono text-muted uppercase tracking-widest mb-6 pb-2 border-b border-ink/10">
+        Projects
+      </p>
+      <div class="space-y-6">
+        <div>
+          <h2 class="text-base font-normal mb-1">CMIS Project</h2>
+          <p class="text-sm text-muted">[Description — to be filled in]</p>
+        </div>
+        <div>
+          <h2 class="text-base font-normal mb-1">Data Mining Project</h2>
+          <p class="text-sm text-muted">[Description — to be filled in]</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Skills -->
+    <section>
+      <p class="text-xs font-mono text-muted uppercase tracking-widest mb-6 pb-2 border-b border-ink/10">
+        Skills & Technologies
+      </p>
+      <p class="text-muted text-sm italic">[Skills — to be filled in]</p>
+    </section>
+  </div>
+</Base>

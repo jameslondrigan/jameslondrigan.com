@@ -1,0 +1,98 @@
+---
+title: "Growing Viral"
+subtitle: "K-Means didn't predict virality. That's what made it useful."
+course: "ISTM 650 — Business Data Mining"
+semester: "Spring 2026"
+team: "Free Thinkers — James Londrigan, Keifer Gunn, Evan De la Garza, Pranav Krishnan, Macy Hoang"
+role: "K-Means clustering lead, feature engineering for the final model"
+stack: ["R", "randomForest", "party::cforest", "kmeans (Lloyd / Hartigan-Wong)", "caret"]
+status: "Complete"
+date: 2026-04-15
+featured: true
+draft: false
+---
+
+## The problem
+
+Brands spend over $200B a year on social media advertising, but platform ranking algorithms are moving targets and "going viral" remains mostly unpredictable. Our team's brief was to take a 2,000-post dataset with engagement metrics, content attributes, and a binary `is_viral` label, and build a model that could predict virality reliably enough to inform marketing decisions — *while staying interpretable enough that content teams could actually act on the output*. Black-box accuracy wasn't the goal; defensible, repeatable predictions were.
+
+## How the team worked
+
+The project ran in three stages. Stage 1 produced a baseline C5.0 decision tree at ~93% average accuracy. Stage 2 split the team across five algorithmic philosophies — each of us independently tested a different family of methods against the same problem, so we could compare what each lens revealed about the data. Stage 3 was synthesis: take the strongest findings from all five Stage 2 explorations and build one final solution.
+
+## My piece: K-Means clustering
+
+I owned the unsupervised lens. I ran K-Means at multiple values of *k* using both the Lloyd and Hartigan-Wong algorithms on the normalized engagement features, varying configuration to test whether clusters would naturally separate viral from non-viral posts. My best configuration (*k* = 4, Lloyd) reached **71.6%** average accuracy — about 21 percentage points below the C5.0 baseline.
+
+That gap was the finding.
+
+At *k* = 2 and *k* = 3, both clusters mapped to the majority "viral" class, meaning the model functioned as nothing more than a majority-class predictor. This wasn't a tuning problem. It told us something structural about the data: **viral and non-viral posts don't form natural spherical groups in Euclidean engagement space**. The virality boundary is threshold-driven, not distance-driven — exactly the kind of boundary axis-aligned tree splits are designed for, and exactly the kind distance-based methods can't represent.
+
+This empirically disqualified distance-based classifiers (KNN and similar) for the final solution and locked in tree-based ensembles. We stopped wasting cycles on a methodology that the data's geometry was never going to reward.
+
+K-Means did produce one durable artifact, though. At *k* = 4, the clusters turned out to be interpretable engagement archetypes:
+
+- **Viral Powerhouse** — 97.4% viral rate
+- **Moderate Performers** — middle of the engagement distribution
+- **High-Share Medium-Reach** — disproportionate shares relative to views
+- **Efficient But Limited** — high engagement rate, small audience
+
+In Stage 3, we engineered these archetypes back into the supervised model as a `cluster_id` feature on each post. The unsupervised pass became a compact summary of where every post sat in overall engagement space, which the Random Forest could then consume alongside the raw engagement features. *K-Means was refit per train/test fold rather than globally — fitting on the full dataset would have leaked test-set positions into the cluster boundaries.*
+
+## The final model
+
+The Stage 3 production model was a Random Forest (1,000 trees, `mtry` = 2) trained on three high-importance features — `likes.group`, `engagement.group`, `shares.group` — plus the engineered `cluster_id`.
+
+At a 90/10 train-test split, averaged over ten independent runs:
+
+| Metric | RF3 baseline | RF3 + cluster_id |
+|---|---|---|
+| Accuracy | 91.9% | **92.8%** |
+| Sensitivity | 93.9% | **95.1%** |
+| F1-Score | 94.2% | **94.9%** |
+| OOB error | — | **6.94%** |
+
+Two things worth surfacing from those numbers. First, the **three-feature model beat the six-feature model at every split ratio**. Adding lower-importance predictors like `region` and `comments.group` actually hurt performance by injecting noise that diluted the signal from likes and engagement rate. Lean and engineered beat full and raw. Second — and this matters more than any single accuracy number — **three independent algorithms converged on the same two dominant predictors**: Macy's Random Forest cforest importance, Evan's neural network Olden's-method importance, and my K-Means archetype boundaries all pointed at `likes` and `engagement_rate`. That cross-algorithm triangulation was the strongest evidence we had that the signal was real, not a single-method artifact.
+
+## The honest caveats
+
+Two limitations we put in the final report and that I'd repeat to anyone reading this:
+
+1. The dataset is **synthetic** (Kaggle-generated). Evan's neural network hit 98.7% accuracy in Stage 2, which he flagged himself as suspicious — synthetic data tends to over-inflate model performance. Our final Random Forest's 92.8% is more credible because of the cross-method convergence, but it's still synthetic.
+2. The model is **post-hoc, not pre-publication**. The dominant predictors (likes, engagement rate) can't be measured until a post is already accumulating engagement. Static pre-publication features like region and content type contribute almost nothing. So the model is best understood as a *trajectory classifier* — useful for deciding whether to amplify an already-trending post — not as an oracle for unpublished content.
+
+## Architecture / data flow
+
+```
+Raw dataset (2,000 posts, 15 attributes)
+        ↓
+Preprocessing
+  - cap engagement_rate at 0.5 (preserves all 2,000 records + original class balance)
+  - bin numerics into low/med/high using Stage 1 cutoffs
+  - engineer hashtag_count
+        ↓
+        ├── Binned features → Random Forest input
+        └── Normalized features
+                  ↓
+              K-Means refit per fold (k=4, Hartigan-Wong)
+                  ↓
+              cluster_id → joined back to binned features
+        ↓
+Random Forest (ntree=1000, mtry=2) on RF3 + cluster_id
+        ↓
+Predicted is_viral + variable importance
+```
+
+## What I'd do differently
+
+The most useful change to my K-Means setup would be to **drop `likes` and `engagement_rate` from the clustering input entirely**. Because those two features dominate the Euclidean distance calculation, the resulting clusters end up being a compressed restatement of "likes × engagement_rate" — which is exactly the signal the Random Forest already has from those features as predictors. The `cluster_id` ends up partly redundant with what the supervised model can already see.
+
+Re-running K-Means on only the non-dominant features (comments, shares, sentiment_score, hashtag_count) would force the unsupervised pass to find structure that *isn't* already captured by likes and engagement rate. The resulting `cluster_id` would be genuinely additive to the Random Forest — encoding novel information about secondary engagement patterns — rather than restating headline metrics the supervised model already trains on directly. Same archetypes, earned independently of the dominant predictors instead of leaning on them.
+
+## What I learned
+
+Evan's neural network hit 98.7% accuracy on this dataset, and our first instinct was to celebrate; our second was to worry. The data was synthetic, and high accuracy on synthetic data is often a sign of overfitting to artifacts that won't exist in the real world. The lesson that stuck with me: a number is only as trustworthy as the data behind it, and getting comfortable being suspicious of your own results — especially when they're flattering — is a skill worth practicing.
+
+## Stack
+
+R, `kmeans` (Lloyd / Hartigan-Wong), `randomForest`, `party::cforest` (for unbiased conditional variable importance), `caret`. Visualizations in base R.

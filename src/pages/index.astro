@@ -1,0 +1,65 @@
+---
+import { getCollection } from 'astro:content';
+import Base from '../layouts/Base.astro';
+import ProjectCard from '../components/ProjectCard.astro';
+
+const featuredProjects = (await getCollection('projects', ({ data }) => data.featured && !data.draft))
+  .sort((a, b) => (b.data.date?.getTime() ?? 0) - (a.data.date?.getTime() ?? 0));
+---
+
+<Base title="Home">
+  <!-- Hero -->
+  <section class="max-w-3xl mx-auto px-6 pt-24 pb-16 border-b border-ink/10">
+    <p class="text-xs font-mono text-muted uppercase tracking-widest mb-8">
+      James Londrigan — Texas A&M MIS
+    </p>
+    <h1 class="text-5xl leading-tight mb-6">
+      Building systems at the<br />intersection of data<br />and business.
+    </h1>
+    <p class="text-lg text-muted leading-relaxed max-w-lg">
+      [Positioning statement — coming soon.]
+    </p>
+  </section>
+
+  <!-- Featured Projects -->
+  <section class="max-w-3xl mx-auto px-6 py-16 border-b border-ink/10">
+    <p class="text-xs font-mono text-muted uppercase tracking-widest mb-8">Selected work</p>
+    <div class="grid gap-4 sm:grid-cols-2">
+      {featuredProjects.map(project => (
+        <ProjectCard
+          title={project.data.title}
+          description={project.data.description ?? project.data.subtitle ?? ''}
+          slug={project.slug}
+          tags={project.data.stack ?? project.data.tags}
+        />
+      ))}
+    </div>
+    <div class="mt-8">
+      <a href="/projects" class="text-sm text-maroon hover:underline underline-offset-4">
+        All projects →
+      </a>
+    </div>
+  </section>
+
+  <!-- Writing teaser -->
+  <section class="max-w-3xl mx-auto px-6 py-16 border-b border-ink/10">
+    <p class="text-xs font-mono text-muted uppercase tracking-widest mb-8">Writing</p>
+    <div class="bg-paper px-8 py-10">
+      <p class="text-2xl leading-snug mb-3">Coming soon.</p>
+      <p class="text-muted leading-relaxed max-w-md">
+        Notes on building systems, lessons from projects, and whatever else earns a few hundred words.
+      </p>
+    </div>
+  </section>
+
+  <!-- Now snippet -->
+  <section class="max-w-3xl mx-auto px-6 py-16">
+    <p class="text-xs font-mono text-muted uppercase tracking-widest mb-6">Now</p>
+    <p class="text-lg leading-relaxed max-w-xl mb-6 text-muted">
+      [What I'm currently building, reading, and learning — updated monthly.]
+    </p>
+    <a href="/now" class="text-sm text-maroon hover:underline underline-offset-4">
+      What I'm up to now →
+    </a>
+  </section>
+</Base>

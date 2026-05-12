@@ -1,0 +1,61 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="About">
+  <div class="max-w-3xl mx-auto px-6 py-16">
+    <div class="mb-12">
+      <p class="text-xs font-mono text-muted uppercase tracking-widest mb-4">About</p>
+      <h1 class="text-4xl leading-tight">James Londrigan</h1>
+    </div>
+
+    <div class="grid gap-12 lg:grid-cols-[1fr_260px]">
+      <!-- Main content -->
+      <div class="space-y-5 text-lg leading-relaxed">
+        <p>
+          [Origin story — how you got into MIS, what drew you to the intersection of systems and
+          data. Keep it honest, not LinkedIn-polished.]
+        </p>
+        <p>
+          [What you're chasing — what problems genuinely interest you, what you want to work on
+          next and why.]
+        </p>
+        <p>
+          [Something specific and real — the detail that makes this page feel like a person wrote
+          it, not a resume generator.]
+        </p>
+      </div>
+
+      <!-- Sidebar -->
+      <aside class="space-y-10">
+        <!-- Photo placeholder -->
+        <div
+          class="w-full aspect-square bg-paper border border-ink/10 flex items-center justify-center"
+        >
+          <p class="text-xs font-mono text-muted text-center leading-loose">
+            [Photo<br />coming soon]
+          </p>
+        </div>
+
+        <!-- Currently -->
+        <div>
+          <p class="text-xs font-mono text-muted uppercase tracking-widest mb-4">Currently</p>
+          <dl class="space-y-3 text-sm">
+            <div>
+              <dt class="text-muted">Building</dt>
+              <dd>[placeholder]</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Reading</dt>
+              <dd>[placeholder]</dd>
+            </div>
+            <div>
+              <dt class="text-muted">Learning</dt>
+              <dd>[placeholder]</dd>
+            </div>
+          </dl>
+        </div>
+      </aside>
+    </div>
+  </div>
+</Base>

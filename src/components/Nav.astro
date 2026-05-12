@@ -1,0 +1,33 @@
+---
+const links = [
+  { href: '/about', label: 'About' },
+  { href: '/projects', label: 'Projects' },
+  { href: '/writing', label: 'Writing' },
+  { href: '/now', label: 'Now' },
+  { href: '/resume', label: 'Resume' },
+];
+const currentPath = Astro.url.pathname;
+---
+
+<header class="border-b border-ink/10">
+  <nav class="max-w-3xl mx-auto px-6 py-5 flex items-center justify-between">
+    <a href="/" class="text-lg tracking-tight text-ink hover:text-maroon transition-colors">
+      James Londrigan
+    </a>
+    <ul class="flex items-center gap-6 text-sm">
+      {links.map(({ href, label }) => (
+        <li>
+          <a
+            href={href}
+            class:list={[
+              'transition-colors hover:text-maroon',
+              currentPath.startsWith(href) ? 'text-maroon' : 'text-muted',
+            ]}
+          >
+            {label}
+          </a>
+        </li>
+      ))}
+    </ul>
+  </nav>
+</header>

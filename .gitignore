@@ -1,0 +1,20 @@
+dist/
+node_modules/
+.env
+.env.production
+.DS_Store
+*.log
+.astro/
+
+# Terraform
+**/.terraform/
+*.tfstate
+*.tfstate.backup
+*.tfplan
+*.tfvars.backup
+override.tf
+override.tf.json
+
+# Bootstrap local state is intentionally committed
+!infra/bootstrap/terraform.tfstate
+!infra/bootstrap/terraform.tfstate.backup

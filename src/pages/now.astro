@@ -1,0 +1,41 @@
+---
+import Base from '../layouts/Base.astro';
+---
+
+<Base title="Now">
+  <div class="max-w-3xl mx-auto px-6 py-16">
+    <div class="mb-12">
+      <p class="text-xs font-mono text-muted uppercase tracking-widest mb-4">Now</p>
+      <h1 class="text-4xl leading-tight mb-4">What I'm up to</h1>
+      <p class="text-sm font-mono text-muted">Updated [Month Year] — College Station, TX</p>
+    </div>
+
+    <div class="space-y-12 max-w-xl">
+      <div>
+        <p class="text-xs font-mono text-muted uppercase tracking-widest mb-4">Building</p>
+        <p class="text-lg leading-relaxed">[What you're currently building — update this monthly.]</p>
+      </div>
+
+      <div>
+        <p class="text-xs font-mono text-muted uppercase tracking-widest mb-4">Reading</p>
+        <p class="text-lg leading-relaxed">[What you're currently reading — update this monthly.]</p>
+      </div>
+
+      <div>
+        <p class="text-xs font-mono text-muted uppercase tracking-widest mb-4">Learning</p>
+        <p class="text-lg leading-relaxed">[What you're currently learning — update this monthly.]</p>
+      </div>
+    </div>
+
+    <div class="mt-16 pt-8 border-t border-ink/10">
+      <p class="text-sm text-muted">
+        Inspired by <a
+          href="https://nownownow.com"
+          class="text-maroon hover:underline underline-offset-2"
+          target="_blank"
+          rel="noopener noreferrer"
+        >nownownow.com</a>. Updated monthly — staleness is the failure mode.
+      </p>
+    </div>
+  </div>
+</Base>
