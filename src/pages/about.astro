@@ -1,5 +1,7 @@
 ---
 import Base from '../layouts/Base.astro';
+import { Image } from 'astro:assets';
+import portrait from '../assets/aggie_ring.jpeg';
 ---
 
 <Base title="About">
@@ -13,46 +15,58 @@ import Base from '../layouts/Base.astro';
       <!-- Main content -->
       <div class="space-y-5 text-lg leading-relaxed">
         <p>
-          I grew up watching my dad work in operational technology — the unglamorous,
-          mission-critical layer that keeps physical systems running — and that's where the
-          interest started. I came to Texas A&M thinking I'd do networking. I took ISTM 310, was
-          sure that was the path, and then the more I learned about cloud, the more it pulled me
-          up the stack.
+          Howdy! I'm James Londrigan and I hail from a town just outside
+          of Houston, Texas called Crosby. I grew up playing sports all
+          through high school but my favorite one was baseball. I still
+          watch all different kinds of sports, root for the Astros against
+          all reason, and I still maintain that no rivalry compares to
+          Aggies vs Longhorns.
         </p>
         <p>
-          These days I'm a year into the MS-MIS program at Mays (graduating December 2026),
-          working as a Business Development Program Aide at AgriLife CMTS, and chasing what cloud
-          and AI can do for the businesses (and the people) on the receiving end of them. Three
-          AWS certs in — Cloud Practitioner, AI Practitioner, and Solutions Architect Associate.
-          Third place in the ISTM 320 CMIS Case Competition for an AI-driven IT strategy. Built
-          the event service for the multi-team CMIS Engagement Platform on AWS serverless — that's
-          its own <a href="/projects/cmis" class="text-maroon hover:underline underline-offset-2">case study</a>.
-          Most recently rebuilt this site you're reading from Astro through Terraform to GitHub
-          Actions, because if I'm going to talk about cloud, the cloud I built should be visible.
+          My dad worked in operational technology and I think that's where
+          my interest in IT started. I came to Texas A&amp;M unsure of what
+          path I wanted to take. I took ISTM 310 focused on networking and
+          thought that was the path, but then the more I learned about
+          cloud, the more it pulled me up the stack.
         </p>
         <p>
-          The most interesting work in IT right now sits between cloud architecture and AI —
-          specifically the part where these tools have to fit the messy reality of how a business
-          actually operates, not the demo-day version. That overlap is where I want to spend the
-          next few years.
+          Being an Aggie has done more for me than I can truly say. The
+          obvious things are the visible ones — the ring, the traditions,
+          the network. The part that's mattered most is the identity that
+          doesn't come off when you graduate. I came in eighteen and not
+          sure of much or of myself. I'm leaving with a Master's, a few
+          certs, and a much clearer sense of who I am and what I want to do.
         </p>
         <p>
-          Outside of school and work: deep in the <em>Red Rising</em> saga (currently on
-          <em>Iron Gold</em>), studying for my next cert, and probably overthinking my Terraform
-          module structure.
+          Day to day: a year into the MS-MIS program at Mays, graduating
+          December 2026, and chasing what cloud and AI can do for the
+          businesses (and the people) on the receiving end of them. AWS
+          certified three times over with Cloud Practitioner, AI Practitioner,
+          and Solutions Architect Associate certs. I'm looking to expand this
+          knowledge into Azure but that is still a work in progress. Most of
+          the technical detail lives in the <a href="/projects"
+          class="text-maroon hover:underline underline-offset-2">projects</a>.
+        </p>
+        <p>
+          Outside of all that: at the gym most days trying to get stronger,
+          I was deep in the <em>Red Rising</em> saga but need to finish the
+          series still, and convinced my dog Houdini was named appropriately
+          because he is a slippery little guy.
         </p>
       </div>
 
       <!-- Sidebar -->
       <aside class="space-y-10">
-        <!-- Photo placeholder -->
-        <div
-          class="w-full aspect-square bg-paper border border-ink/10 flex items-center justify-center"
-        >
-          <p class="text-xs font-mono text-muted text-center leading-loose">
-            [Photo<br />coming soon]
-          </p>
-        </div>
+        <!-- Portrait -->
+        <Image
+          src={portrait}
+          alt="James Londrigan wearing his Texas A&M Aggie ring, making the Gig 'em hand signal"
+          class="w-full aspect-square object-cover object-top"
+          loading="lazy"
+          decoding="async"
+          widths={[260, 520]}
+          sizes="260px"
+        />
 
         <!-- Currently -->
         <div>
@@ -64,11 +78,11 @@ import Base from '../layouts/Base.astro';
             </div>
             <div>
               <dt class="text-muted">Reading</dt>
-              <dd><em>Iron Gold</em> (Red Rising)</dd>
+              <dd><em>Red Rising</em> series (still finishing)</dd>
             </div>
             <div>
               <dt class="text-muted">Learning</dt>
-              <dd>Agentic AI</dd>
+              <dd>Azure foundations</dd>
             </div>
           </dl>
         </div>

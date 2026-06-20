@@ -1,4 +1,13 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
-  <rect width="32" height="32" fill="#6B1F2E"/>
-  <text x="16" y="23" font-size="20" font-family="Georgia, serif" font-weight="bold" text-anchor="middle" fill="#FAF7F0">J</text>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <rect width="100" height="100" fill="#6B1F2E"/>
+
+  <!-- J: top serif + stem + quarter-circle hook -->
+  <rect x="22" y="12" width="19" height="5" fill="#FAF7F0"/>
+  <rect x="27" y="12" width="9" height="60" fill="#FAF7F0"/>
+  <path d="M 36,70 C 36,80 28,90 18,90 L 18,81 C 23,81 27,75 27,70 Z" fill="#FAF7F0"/>
+
+  <!-- L: top serif + stem + foot -->
+  <rect x="45" y="12" width="19" height="5" fill="#FAF7F0"/>
+  <rect x="50" y="12" width="9" height="60" fill="#FAF7F0"/>
+  <rect x="50" y="67" width="32" height="5" fill="#FAF7F0"/>
 </svg>
