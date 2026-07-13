@@ -2,7 +2,7 @@ import React, { useState, useMemo, useRef, useEffect } from 'react';
 import SONGS_DATA from '../../data/needledrop-songs.json';
 
 /*
- * Track Record — music year-guessing party game
+ * Track Record: music year-guessing party game
  * Enriched data: songs with baked preview URLs play instantly.
  * JSONP live-resolution (iTunes API) is the fallback for unenriched songs.
  */
@@ -250,7 +250,19 @@ const CSS = `
   .nd .nd-spinning{animation:none!important}
   .nd .nd-arm{transition:none!important}
   .nd .vu b.on{animation:none!important;height:24px}
+  .nd .flip-card{transition:none!important}
 }
+.nd .flip-scene{perspective:900px}
+.nd .flip-card{position:relative;transform-style:preserve-3d;transition:transform .55s ease}
+.nd .flip-card.nd-flipped{transform:rotateY(180deg)}
+.nd .flip-front{backface-visibility:hidden;-webkit-backface-visibility:hidden}
+.nd .flip-back{position:absolute;top:0;left:0;width:100%;backface-visibility:hidden;-webkit-backface-visibility:hidden;transform:rotateY(180deg)}
+.nd .tl-item{display:flex;align-items:baseline;gap:12px;padding:11px 0;border-bottom:1px solid var(--line)}
+.nd .tl-item:last-child{border-bottom:none;padding-bottom:0}
+.nd .tl-num{font-family:'Righteous',sans-serif;font-size:22px;color:var(--maroon);flex-shrink:0;width:30px;line-height:1}
+.nd .tl-text{font-size:15px;line-height:1.4}
+.nd .tl-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber);letter-spacing:.1em;display:block;margin-top:3px}
+.nd .score-hint{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-align:center;margin-top:12px}
 `;
 
 /* ---- 7-bar VU meter (replaces EQ bars) ---- */
@@ -297,7 +309,7 @@ const Turntable = ({ playing }: { playing: boolean }) => (
         <text x="100" y="109" textAnchor="middle" fontFamily="Righteous,sans-serif" fontSize="8.5" fill="#F5EAD2" letterSpacing="0.6">RECORD</text>
       </svg>
     </div>
-    {/* Tonearm — pivot at (60,15) in SVG coords, rotates around that point */}
+    {/* Tonearm: pivot at (60,15) in SVG coords, rotates around that point */}
     <svg
       width="70" height="170"
       viewBox="0 0 70 170"
@@ -346,6 +358,7 @@ export default function NeedleDrop() {
   const [prevRanks, setPrevRanks] = useState<Record<string, number>>({});
   const [revealYear, setRevealYear] = useState(0);
   const [revealDone, setRevealDone] = useState(false);
+  const [showHowToPlay, setShowHowToPlay] = useState(false);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const roundSeq = useRef(0);
@@ -366,7 +379,7 @@ export default function NeedleDrop() {
   }, [pool]);
   const midYear = Math.round((era.min + era.max) / 2);
 
-  /* Reveal count-up — accelerating ticks then landing sting */
+  /* Reveal count-up: accelerating ticks then landing sting */
   useEffect(() => {
     if (phase !== 'reveal' || target === null) return;
     setRevealDone(false);
@@ -507,7 +520,7 @@ export default function NeedleDrop() {
         <div style={{ flex: 1, fontWeight: 600 }}>{p.name}</div>
         {move !== null && (
           <div className={'chart-move ' + (move > 0 ? 'nd-up' : move < 0 ? 'nd-down' : 'nd-hold')}>
-            {move > 0 ? `▲${move}` : move < 0 ? `▼${Math.abs(move)}` : '—'}
+            {move > 0 ? `▲${move}` : move < 0 ? `▼${Math.abs(move)}` : '='}
           </div>
         )}
         <div className="chart-score">{p.score}</div>
@@ -529,53 +542,88 @@ export default function NeedleDrop() {
               <div className="disp" style={{ fontSize: 76 }}>TRACK<br />RECORD</div>
               <div className="muted" style={{ marginTop: 10 }}>Name the song. Tune in the year.</div>
             </div>
-            <div className="card" style={{ marginTop: 20 }}>
-              <div className="eyebrow" style={{ marginBottom: 12 }}>Players</div>
-              {names.map((n, i) => (
-                <div className="row" key={i} style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
-                  <input className="name" placeholder={'Player ' + (i + 1)} value={n}
-                    onChange={(e) => setNames((a) => a.map((x, k) => (k === i ? e.target.value : x)))} />
-                  {names.length > 1 && (
-                    <button className="btn sm" onClick={() => setNames((a) => a.filter((_, k) => k !== i))}>&times;</button>
+            <div className="flip-scene" style={{ marginTop: 20 }}>
+              <div className={'flip-card' + (showHowToPlay ? ' nd-flipped' : '')}>
+
+                {/* Front: setup form */}
+                <div className="flip-front card">
+                  <div className="eyebrow" style={{ marginBottom: 12 }}>Players</div>
+                  {names.map((n, i) => (
+                    <div className="row" key={i} style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
+                      <input className="name" placeholder={'Player ' + (i + 1)} value={n}
+                        onChange={(e) => setNames((a) => a.map((x, k) => (k === i ? e.target.value : x)))} />
+                      {names.length > 1 && (
+                        <button className="btn sm" onClick={() => setNames((a) => a.filter((_, k) => k !== i))}>&times;</button>
+                      )}
+                    </div>
+                  ))}
+                  {names.length < 8 && (
+                    <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>
                   )}
+
+                  <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
+                  <div className="row">
+                    {ERAS.map((e, i) => (
+                      <button key={i} className={'chip' + (eraIdx === i ? ' on' : '')} onClick={() => setEraIdx(i)}>{e.label}</button>
+                    ))}
+                  </div>
+
+                  <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Peak tier</div>
+                  <div className="row">
+                    {([3, 5, 10] as const).map((t) => (
+                      <button key={t} className={'chip' + (tier === t ? ' on' : '')} onClick={() => setTier(t)}>Top {t}</button>
+                    ))}
+                  </div>
+                  {tier === 3 && (
+                    <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Strictest pool. Fewer years in play.</div>
+                  )}
+
+                  <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Genre</div>
+                  <div className="row">
+                    {GENRES.map((g) => (
+                      <button key={g} className={'chip' + (genre === g ? ' on' : '')} onClick={() => setGenre(g)}>{g}</button>
+                    ))}
+                  </div>
+
+                  {!poolYears.length && (
+                    <div className="hint" style={{ color: 'var(--red)', marginTop: 12, textAlign: 'center' }}>
+                      No years match these filters. Loosen one.
+                    </div>
+                  )}
+                  <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>
+                    Start game &#9654;
+                  </button>
+                  <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setShowHowToPlay(true)}>
+                    How to play
+                  </button>
                 </div>
-              ))}
-              {names.length < 8 && (
-                <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>
-              )}
 
-              <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
-              <div className="row">
-                {ERAS.map((e, i) => (
-                  <button key={i} className={'chip' + (eraIdx === i ? ' on' : '')} onClick={() => setEraIdx(i)}>{e.label}</button>
-                ))}
-              </div>
-
-              <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Peak tier</div>
-              <div className="row">
-                {([3, 5, 10] as const).map((t) => (
-                  <button key={t} className={'chip' + (tier === t ? ' on' : '')} onClick={() => setTier(t)}>Top {t}</button>
-                ))}
-              </div>
-              {tier === 3 && (
-                <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Strictest pool &mdash; fewer years in play.</div>
-              )}
-
-              <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Genre</div>
-              <div className="row">
-                {GENRES.map((g) => (
-                  <button key={g} className={'chip' + (genre === g ? ' on' : '')} onClick={() => setGenre(g)}>{g}</button>
-                ))}
-              </div>
-
-              {!poolYears.length && (
-                <div className="hint" style={{ color: 'var(--red)', marginTop: 12, textAlign: 'center' }}>
-                  No years match these filters &mdash; loosen one.
+                {/* Back: rules as numbered tracklist */}
+                <div className="flip-back card">
+                  <div className="eyebrow" style={{ marginBottom: 14 }}>Side B &middot; How to play</div>
+                  <div>
+                    {[
+                      { text: 'Three songs from the same year play back-to-back.' },
+                      { text: 'Name the song.', sub: '+1 point per player who gets it' },
+                      { text: 'Name the artist.', sub: '+1 point per player who gets it' },
+                      { text: 'Each player tunes the dial to guess the year.' },
+                      { text: 'Year scoring.', sub: 'Exact +5 · within 1 yr +3 · within 3 yrs +1' },
+                    ].map((item, i) => (
+                      <div key={i} className="tl-item">
+                        <div className="tl-num">{String(i + 1).padStart(2, '0')}</div>
+                        <div className="tl-text">
+                          {item.text}
+                          {item.sub && <span className="tl-sub">{item.sub}</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  <button className="btn wide" style={{ marginTop: 20 }} onClick={() => setShowHowToPlay(false)}>
+                    &#8592; Back
+                  </button>
                 </div>
-              )}
-              <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>
-                Start game &#9654;
-              </button>
+
+              </div>
             </div>
             <div className="muted hint" style={{ textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>
               Song +1 &middot; Artist +1 &middot; Year: exact <b style={{ color: 'var(--cream)' }}>5</b>, within 1 yr <b style={{ color: 'var(--cream)' }}>3</b>, within 3 yrs <b style={{ color: 'var(--cream)' }}>1</b>
@@ -604,7 +652,7 @@ export default function NeedleDrop() {
               )}
               {loadState === 'failed' && (
                 <>
-                  <div className="muted" style={{ marginBottom: 14 }}>Couldn&apos;t tune in that year &mdash; likely a network hiccup.</div>
+                  <div className="muted" style={{ marginBottom: 14 }}>Couldn&apos;t tune in that year. Likely a network hiccup.</div>
                   <button className="btn primary" onClick={startRound}>Spin again &#8635;</button>
                 </>
               )}
@@ -684,9 +732,9 @@ export default function NeedleDrop() {
             <div className="disp" style={{ fontSize: 56, margin: '6px 0 18px', color: 'var(--amberhi)' }}>
               {players[gIdx].name}
             </div>
-            <div className="muted hint" style={{ marginBottom: 22 }}>Everyone else, eyes up &mdash; guesses stay secret.</div>
+            <div className="muted hint" style={{ marginBottom: 22 }}>Everyone else, eyes up. Guesses stay secret.</div>
             <button className="btn primary wide" onClick={beginGuess}>
-              I&apos;m {players[gIdx].name} &mdash; show the dial ▶
+              I&apos;m {players[gIdx].name}, show the dial ▶
             </button>
             <div className="dots" style={{ marginTop: 18 }}>
               {players.map((p, i) => (
@@ -724,6 +772,7 @@ export default function NeedleDrop() {
                 <button className="btn primary" style={{ flex: 1 }} onClick={lockYear}>Lock in ▶</button>
                 <button className="btn nd-nudge" onClick={() => nudge(+1)} aria-label="Year plus 1">+</button>
               </div>
+              <div className="score-hint">Exact 5 &middot; &plusmn;1 yr 3 &middot; &plusmn;3 yrs 1</div>
             </div>
           </>
         )}
@@ -746,7 +795,7 @@ export default function NeedleDrop() {
                 {tracks.map((s, i) => (
                   <div key={i} style={{ marginBottom: 8 }}>
                     <span style={{ fontWeight: 600 }}>{s.t}</span>{' '}
-                    <span className="muted">&mdash; {s.a}</span>
+                    <span className="muted">&middot; {s.a}</span>
                   </div>
                 ))}
                 <div className="eyebrow" style={{ margin: '18px 0 10px' }}>Year scoring</div>
