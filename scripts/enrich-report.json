@@ -1,0 +1,691 @@
+{
+  "generatedAt": "2026-07-13T17:06:43.743Z",
+  "counts": {
+    "resolved": 622,
+    "failed": 23,
+    "deferred": 0,
+    "total": 1725
+  },
+  "unresolved": [
+    {
+      "y": 1959,
+      "t": "Personality",
+      "a": "Lloyd Price and His Orchestra",
+      "p": 2,
+      "w": 19,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 1960,
+      "t": "Are You Lonesome To-night?",
+      "a": "Elvis Presley With The Jordanaires",
+      "p": 1,
+      "w": 16,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.50",
+        "as": "1.00"
+      }
+    },
+    {
+      "y": 1961,
+      "t": "Calcutta",
+      "a": "Lawrence Welk And His Orchestra",
+      "p": 1,
+      "w": 17,
+      "_status": "failed",
+      "_conf": null
+    },
+    {
+      "y": 1962,
+      "t": "The Stripper",
+      "a": "David Rose and His Orchestra",
+      "p": 1,
+      "w": 17,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.50"
+      }
+    },
+    {
+      "y": 1962,
+      "t": "Big Girls Don't Cry",
+      "a": "The 4 Seasons",
+      "p": 1,
+      "w": 16,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.50"
+      }
+    },
+    {
+      "y": 1962,
+      "t": "Sherry",
+      "a": "The 4 Seasons",
+      "p": 1,
+      "w": 14,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.50"
+      }
+    },
+    {
+      "y": 1963,
+      "t": "Walk Like A Man",
+      "a": "The 4 Seasons",
+      "p": 1,
+      "w": 13,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.50"
+      }
+    },
+    {
+      "y": 1964,
+      "t": "Oh, Pretty Woman",
+      "a": "Roy Orbison And The Candy Men",
+      "p": 1,
+      "w": 15,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.00",
+        "as": "0.90"
+      }
+    },
+    {
+      "y": 1964,
+      "t": "Rag Doll",
+      "a": "The 4 Seasons Featuring the \"Sound of Frankie Valli\"",
+      "p": 1,
+      "w": 12,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.50"
+      }
+    },
+    {
+      "y": 1967,
+      "t": "Judy In Disguise (With Glasses)",
+      "a": "John Fred And The Playboys",
+      "p": 1,
+      "w": 16,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.38"
+      }
+    },
+    {
+      "y": 1970,
+      "t": "I Think I Love You",
+      "a": "The Partridge Family Starring Shirley Jones Featuring David Cassidy",
+      "p": 1,
+      "w": 19,
+      "_status": "failed",
+      "_conf": null
+    },
+    {
+      "y": 1975,
+      "t": "Love Will Keep Us Together",
+      "a": "The Captain & Tennille",
+      "p": 1,
+      "w": 23,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 1975,
+      "t": "Pick Up The Pieces",
+      "a": "AWB",
+      "p": 1,
+      "w": 17,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 1976,
+      "t": "December, 1963 (Oh, What a Night)",
+      "a": "The 4 Seasons",
+      "p": 1,
+      "w": 27,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.50"
+      }
+    },
+    {
+      "y": 1983,
+      "t": "Baby, Come To Me",
+      "a": "Patti Austin A Duet With James Ingram",
+      "p": 1,
+      "w": 32,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.29"
+      }
+    },
+    {
+      "y": 1983,
+      "t": "Islands In The Stream",
+      "a": "Kenny Rogers Duet With Dolly Parton",
+      "p": 1,
+      "w": 25,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 1984,
+      "t": "Footloose",
+      "a": "Kenny Loggins",
+      "p": 1,
+      "w": 23,
+      "_status": "failed"
+    },
+    {
+      "y": 1985,
+      "t": "Careless Whisper",
+      "a": "Wham! Featuring George Michael",
+      "p": 1,
+      "w": 22,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 1985,
+      "t": "We Are The World",
+      "a": "USA For Africa",
+      "p": 1,
+      "w": 18,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 1988,
+      "t": "Wishing Well",
+      "a": "Terence Trent D'Arby",
+      "p": 1,
+      "w": 25,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 1988,
+      "t": "Baby, I Love Your Way/Freebird Medley",
+      "a": "Will To Power",
+      "p": 1,
+      "w": 24,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.90",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 1990,
+      "t": "Nothing Compares 2 U",
+      "a": "Sinead O'Connor",
+      "p": 1,
+      "w": 21,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.40"
+      }
+    },
+    {
+      "y": 1990,
+      "t": "I'll Be Your Everything",
+      "a": "Tommy Page",
+      "p": 1,
+      "w": 18,
+      "_status": "failed"
+    },
+    {
+      "y": 1991,
+      "t": "Cream",
+      "a": "Prince And The N.P.G.",
+      "p": 1,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 1992,
+      "t": "Diamonds And Pearls",
+      "a": "Prince And The N.P.G.",
+      "p": 3,
+      "w": 21,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 1993,
+      "t": "Right Here (Human Nature)/Downtown",
+      "a": "SWV",
+      "p": 2,
+      "w": 22,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.00",
+        "as": "1.00"
+      }
+    },
+    {
+      "y": 1994,
+      "t": "The Power Of Love",
+      "a": "Celine Dion",
+      "p": 1,
+      "w": 33,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 1996,
+      "t": "Macarena (Bayside Boys Mix)",
+      "a": "Los Del Rio",
+      "p": 1,
+      "w": 60,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.40"
+      }
+    },
+    {
+      "y": 1996,
+      "t": "Because You Loved Me (From \"Up Close & Personal\")",
+      "a": "Celine Dion",
+      "p": 1,
+      "w": 33,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 1996,
+      "t": "It's All Coming Back To Me Now",
+      "a": "Celine Dion",
+      "p": 2,
+      "w": 30,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 1997,
+      "t": "Foolish Games/You Were Meant For Me",
+      "a": "Jewel",
+      "p": 2,
+      "w": 65,
+      "_status": "failed",
+      "_conf": null
+    },
+    {
+      "y": 1998,
+      "t": "My Heart Will Go On",
+      "a": "Celine Dion",
+      "p": 1,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 1999,
+      "t": "Music Of My Heart",
+      "a": "'N Sync & Gloria Estefan",
+      "p": 2,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2000,
+      "t": "Independent Women Part I",
+      "a": "Destiny's Child",
+      "p": 1,
+      "w": 28,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.33",
+        "as": "1.00"
+      }
+    },
+    {
+      "y": 2000,
+      "t": "It's Gonna Be Me",
+      "a": "'N Sync",
+      "p": 1,
+      "w": 25,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2000,
+      "t": "Case Of The Ex (Whatcha Gonna Do)",
+      "a": "Mya",
+      "p": 2,
+      "w": 30,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2002,
+      "t": "'03 Bonnie & Clyde",
+      "a": "Jay-Z Featuring Beyonce Knowles",
+      "p": 4,
+      "w": 23,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 2005,
+      "t": "Boulevard Of Broken Dreams",
+      "a": "Green Day",
+      "p": 2,
+      "w": 36,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2009,
+      "t": "TiK ToK",
+      "a": "Ke$ha",
+      "p": 1,
+      "w": 38,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2009,
+      "t": "Run This Town",
+      "a": "Jay-Z, Rihanna & Kanye West",
+      "p": 2,
+      "w": 23,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 2010,
+      "t": "We R Who We R",
+      "a": "Ke$ha",
+      "p": 1,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2010,
+      "t": "F**k You! (Forget You)",
+      "a": "CeeLo Green",
+      "p": 2,
+      "w": 48,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2012,
+      "t": "Die Young",
+      "a": "Ke$ha",
+      "p": 2,
+      "w": 22,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2013,
+      "t": "Holy Grail",
+      "a": "Jay Z Featuring Justin Timberlake",
+      "p": 4,
+      "w": 27,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.33"
+      }
+    },
+    {
+      "y": 2016,
+      "t": "Bad Things",
+      "a": "Machine Gun Kelly x Camila Cabello",
+      "p": 4,
+      "w": 23,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 2018,
+      "t": "FEFE",
+      "a": "6ix9ine Featuring Nicki Minaj & Murda Beatz",
+      "p": 3,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2018,
+      "t": "Killshot",
+      "a": "Eminem",
+      "p": 3,
+      "w": 8,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2019,
+      "t": "Senorita",
+      "a": "Shawn Mendes & Camila Cabello",
+      "p": 1,
+      "w": 37,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.00",
+        "as": "0.90"
+      }
+    },
+    {
+      "y": 2020,
+      "t": "The Box",
+      "a": "Roddy Ricch",
+      "p": 1,
+      "w": 38,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2021,
+      "t": "Last Christmas",
+      "a": "Wham!",
+      "p": 2,
+      "w": 53,
+      "_status": "failed"
+    },
+    {
+      "y": 2021,
+      "t": "Levitating",
+      "a": "Dua Lipa Featuring DaBaby",
+      "p": 2,
+      "w": 40,
+      "_status": "failed"
+    },
+    {
+      "y": 2021,
+      "t": "my.life",
+      "a": "J. Cole, 21 Savage & Morray",
+      "p": 2,
+      "w": 14,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.25"
+      }
+    },
+    {
+      "y": 2022,
+      "t": "We Don't Talk About Bruno",
+      "a": "Carolina Gaitan, Mauro Castillo, Adassa, Rhenzy Feliz, Diane Guerrero, Stephanie Beatriz & Encanto Cast",
+      "p": 1,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.06"
+      }
+    },
+    {
+      "y": 2022,
+      "t": "Do We Have A Problem?",
+      "a": "Nicki Minaj X Lil Baby",
+      "p": 2,
+      "w": 13,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.00",
+        "as": "0.90"
+      }
+    },
+    {
+      "y": 2023,
+      "t": "Try That In A Small Town",
+      "a": "Jason Aldean",
+      "p": 1,
+      "w": 20,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2025,
+      "t": "DTMF",
+      "a": "Bad Bunny",
+      "p": 1,
+      "w": 30,
+      "_status": "failed",
+      "_conf": {
+        "ts": "0.90",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2025,
+      "t": "Baile Inolvidable",
+      "a": "Bad Bunny",
+      "p": 2,
+      "w": 26,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2025,
+      "t": "Rather Lie",
+      "a": "Playboi Carti & The Weeknd",
+      "p": 4,
+      "w": 23,
+      "_status": "failed",
+      "_conf": {
+        "ts": "1.00",
+        "as": "0.00"
+      }
+    },
+    {
+      "y": 2026,
+      "t": "Ran To Atlanta",
+      "a": "Drake Feauring Future & Molly Santana",
+      "p": 2,
+      "w": 1,
+      "_status": "failed",
+      "_conf": null
+    }
+  ]
+}

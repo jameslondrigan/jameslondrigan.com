@@ -1,23 +1,24 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-// Adjust this import to wherever the seed lives in the repo (see brief):
-import SEED from '../../data/needledrop-seed.json';
+import SONGS_DATA from '../../data/needledrop-songs.json';
 
 /* ============================================================
    Needle Drop — production island (client:only="react")
-   - Seed data only (year/title/artist/peak). Clips resolve live
-     via the iTunes Search API (JSONP) when a round starts.
-   - Auto-swap: unresolvable songs are replaced from the same year
-     so every round always has 3 playable clips.
+   - Enriched data: songs with baked preview URLs play instantly.
+   - JSONP live-resolution (iTunes API) is the fallback for songs
+     without a baked preview, preserving the auto-swap behavior.
    - Handoff gate before each year guess; tick sound + vibration
      on the tuner dial.
    CSP note: allow script-src itunes.apple.com (JSONP) and
    media-src *.itunes.apple.com / *.mzstatic.com (clips + art).
    ============================================================ */
 
-type Seed = { y: number; t: string; a: string; p: number; w?: number };
-type Track = Seed & { preview: string; art: string | null };
+type SongData = { y: number; t: string; a: string; p: number; w?: number; preview: string | null; art: string | null; g: string };
+type Track = SongData & { preview: string };
 
-const SONGS = SEED as Seed[];
+const SONGS = SONGS_DATA as SongData[];
+
+const GENRES = ['Any', 'Rock', 'Pop', 'Country', 'Hip-Hop/R&B', 'Dance/Electronic', 'Other'] as const;
+type Genre = typeof GENRES[number];
 const YEARS = [...new Set(SONGS.map((s) => s.y))].sort((a, b) => a - b);
 const YMIN = YEARS[0], YMAX = YEARS[YEARS.length - 1];
 
@@ -60,7 +61,10 @@ function jsonp(url: string, timeoutMs = 8000): Promise<any> {
 }
 
 const resolveCache: Record<string, Track | null> = {};
-async function resolveTrack(s: Seed): Promise<Track | null> {
+async function resolveTrack(s: SongData): Promise<Track | null> {
+  // Baked preview from enriched data — instant, no network
+  if (s.preview) return { ...s, preview: s.preview } as Track;
+  // JSONP live-resolution fallback for unenriched songs
   const key = s.t + '|' + s.a;
   if (key in resolveCache) return resolveCache[key];
   let out: Track | null = null;
@@ -77,20 +81,29 @@ async function resolveTrack(s: Seed): Promise<Track | null> {
       if (rank > bestRank) { bestRank = rank; best = { r, ts, as }; }
     }
     if (best && best.ts >= 0.6 && best.as >= 0.55) {
-      out = { ...s, preview: best.r.previewUrl, art: (best.r.artworkUrl100 || '').replace('100x100', '300x300') || null };
+      out = { ...s, preview: best.r.previewUrl, art: (best.r.artworkUrl100 || '').replace('100x100', '300x300') || null } as Track;
     }
   } catch { /* treated as unresolved; caller swaps in another song */ }
   resolveCache[key] = out;
   return out;
 }
 
-/** Resolve candidates from one year until 3 playable tracks are found. */
-async function resolveRound(candidates: Seed[], want = 3): Promise<Track[]> {
+/** Build a round: baked-preview songs first (instant), JSONP fallback for null-preview songs. */
+async function resolveRound(candidates: SongData[], want = 3): Promise<Track[]> {
   const found: Track[] = [];
+  // Pass 1: baked previews (instant, no network)
   for (const c of candidates) {
     if (found.length >= want) break;
-    const t = await resolveTrack(c);
-    if (t) found.push(t);
+    if (c.preview) found.push({ ...c, preview: c.preview } as Track);
+  }
+  // Pass 2: JSONP live-resolution for remaining slots
+  if (found.length < want) {
+    for (const c of candidates) {
+      if (found.length >= want) break;
+      if (c.preview) continue;
+      const t = await resolveTrack(c);
+      if (t) found.push(t);
+    }
   }
   return found;
 }
@@ -190,7 +203,8 @@ export default function NeedleDrop() {
   const [names, setNames] = useState<string[]>(['', '']);
   const [players, setPlayers] = useState<Player[]>([]);
   const [eraIdx, setEraIdx] = useState(0);
-  const [diff, setDiff] = useState<'hits' | 'all'>('hits');
+  const [tier, setTier] = useState<3 | 5 | 10>(5);
+  const [genre, setGenre] = useState<Genre>('Any');
   const [round, setRound] = useState(0);
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -198,8 +212,10 @@ export default function NeedleDrop() {
   const [target, setTarget] = useState<number | null>(null);
   const [sIdx, setSIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [tDone, setTDone] = useState(false);
-  const [aDone, setADone] = useState(false);
+  const [tClosed, setTClosed] = useState(false);
+  const [aClosed, setAClosed] = useState(false);
+  const [tAwarded, setTAwarded] = useState(new Set<string>());
+  const [aAwarded, setAAwarded] = useState(new Set<string>());
 
   const [gIdx, setGIdx] = useState(0);
   const [tuner, setTuner] = useState(YMIN);
@@ -213,8 +229,10 @@ export default function NeedleDrop() {
 
   const era = ERAS[eraIdx];
   const pool = useMemo(
-    () => SONGS.filter((s) => s.y >= era.min && s.y <= era.max && (diff === 'all' || s.p <= 5)),
-    [eraIdx, diff]
+    () => SONGS.filter((s) =>
+      s.y >= era.min && s.y <= era.max && s.p <= tier && (genre === 'Any' || s.g === genre)
+    ),
+    [eraIdx, tier, genre]
   );
   const poolYears = useMemo(() => {
     const m: Record<number, number> = {};
@@ -223,18 +241,22 @@ export default function NeedleDrop() {
   }, [pool]);
   const midYear = Math.round((era.min + era.max) / 2);
 
-  /** Start a round: pick a year, resolve clips in the background, auto-swap failures. */
+  /** Start a round: pick a year, resolve clips — baked previews first, JSONP fallback for nulls. */
   function startRound() {
     const seq = ++roundSeq.current;
     setLoadState('loading'); setTracks([]);
-    setSIdx(0); setRevealed(false); setTDone(false); setADone(false);
+    setSIdx(0); setRevealed(false);
+    setTClosed(false); setAClosed(false);
+    setTAwarded(new Set()); setAAwarded(new Set());
     const yr = poolYears[Math.floor(Math.random() * poolYears.length)];
     setTarget(yr);
-    const candidates = shuffle(pool.filter((s) => s.y === yr)); // up to ~25; resolver walks until 3 stick
+    const shuffled = shuffle(pool.filter((s) => s.y === yr));
+    // Baked previews first so rounds start instantly when data is enriched
+    const candidates = [...shuffled.filter(s => s.preview !== null), ...shuffled.filter(s => s.preview === null)];
     resolveRound(candidates, 3).then((found) => {
-      if (roundSeq.current !== seq) return; // a newer round superseded this one
+      if (roundSeq.current !== seq) return;
       if (found.length >= 3) { setTracks(found.slice(0, 3)); setLoadState('ready'); }
-      else if (found.length > 0) { setTracks(found); setLoadState('ready'); } // rare: short round beats no round
+      else if (found.length > 0) { setTracks(found); setLoadState('ready'); }
       else setLoadState('failed');
     });
   }
@@ -256,15 +278,23 @@ export default function NeedleDrop() {
     } catch { setPlaying(false); }
   }
 
-  const award = (who: string | null, kind: 't' | 'a') => {
-    if (who) setPlayers((ps) => ps.map((p) => (p.id === who ? { ...p, score: p.score + 1 } : p)));
-    if (kind === 't') setTDone(true); else setADone(true);
+  const awardPlayer = (pid: string, kind: 't' | 'a') => {
+    setPlayers((ps) => ps.map((p) => p.id === pid ? { ...p, score: p.score + 1 } : p));
+    if (kind === 't') setTAwarded((s) => new Set([...s, pid]));
+    else setAAwarded((s) => new Set([...s, pid]));
+  };
+
+  const closeCategory = (kind: 't' | 'a') => {
+    if (kind === 't') setTClosed(true); else setAClosed(true);
   };
 
   function nextSong() {
     stopAudio();
-    if (sIdx < tracks.length - 1) { setSIdx((i) => i + 1); setRevealed(false); setTDone(false); setADone(false); }
-    else { setGIdx(0); setGuesses({}); setPhase('handoff'); }
+    if (sIdx < tracks.length - 1) {
+      setSIdx((i) => i + 1); setRevealed(false);
+      setTClosed(false); setAClosed(false);
+      setTAwarded(new Set()); setAAwarded(new Set());
+    } else { setGIdx(0); setGuesses({}); setPhase('handoff'); }
   }
 
   function beginGuess() { setTuner(midYear); setPhase('year'); }
@@ -327,13 +357,29 @@ export default function NeedleDrop() {
                 ))}
               </div>
 
-              <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Difficulty</div>
+              <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Peak tier</div>
               <div className="row">
-                <button className={'chip' + (diff === 'hits' ? ' on' : '')} onClick={() => setDiff('hits')}>Big hits (top 5)</button>
-                <button className={'chip' + (diff === 'all' ? ' on' : '')} onClick={() => setDiff('all')}>Deep cuts (top 10)</button>
+                {([3, 5, 10] as const).map((t) => (
+                  <button key={t} className={'chip' + (tier === t ? ' on' : '')} onClick={() => setTier(t)}>Top {t}</button>
+                ))}
+              </div>
+              {tier === 3 && (
+                <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Strictest pool — fewer years in play.</div>
+              )}
+
+              <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Genre</div>
+              <div className="row">
+                {GENRES.map((g) => (
+                  <button key={g} className={'chip' + (genre === g ? ' on' : '')} onClick={() => setGenre(g)}>{g}</button>
+                ))}
               </div>
 
-              <button className="btn primary wide" style={{ marginTop: 22 }} onClick={start}>Start game ▶</button>
+              {!poolYears.length && (
+                <div className="hint" style={{ color: 'var(--red)', marginTop: 12, textAlign: 'center' }}>
+                  No years match these filters — loosen one.
+                </div>
+              )}
+              <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>Start game ▶</button>
             </div>
             <div className="muted hint" style={{ textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>
               Song +1 · Artist +1 · Year: exact <b style={{ color: 'var(--cream)' }}>5</b>, within 1 yr <b style={{ color: 'var(--cream)' }}>3</b>, within 3 yrs <b style={{ color: 'var(--cream)' }}>1</b>
@@ -382,17 +428,37 @@ export default function NeedleDrop() {
 
                       <div className="eyebrow" style={{ margin: '18px 0 8px' }}>Who named the song? +1</div>
                       <div className="row">
-                        {players.map((p) => <button key={p.id} className="btn sm" disabled={tDone} onClick={() => award(p.id, 't')}>{p.name}</button>)}
-                        <button className="btn sm" disabled={tDone} onClick={() => award(null, 't')}>Nobody</button>
+                        {players.map((p) => (
+                          <button key={p.id} className="btn sm" disabled={tClosed || tAwarded.has(p.id)}
+                            onClick={() => awardPlayer(p.id, 't')}>
+                            {tAwarded.has(p.id) ? '✓ ' + p.name : p.name}
+                          </button>
+                        ))}
+                        {tAwarded.size === 0 && (
+                          <button className="btn sm" disabled={tClosed} onClick={() => closeCategory('t')}>Nobody</button>
+                        )}
+                        {tAwarded.size > 0 && !tClosed && (
+                          <button className="btn sm" onClick={() => closeCategory('t')}>Done</button>
+                        )}
                       </div>
 
                       <div className="eyebrow" style={{ margin: '16px 0 8px' }}>Who named the artist? +1</div>
                       <div className="row">
-                        {players.map((p) => <button key={p.id} className="btn sm" disabled={aDone} onClick={() => award(p.id, 'a')}>{p.name}</button>)}
-                        <button className="btn sm" disabled={aDone} onClick={() => award(null, 'a')}>Nobody</button>
+                        {players.map((p) => (
+                          <button key={p.id} className="btn sm" disabled={aClosed || aAwarded.has(p.id)}
+                            onClick={() => awardPlayer(p.id, 'a')}>
+                            {aAwarded.has(p.id) ? '✓ ' + p.name : p.name}
+                          </button>
+                        ))}
+                        {aAwarded.size === 0 && (
+                          <button className="btn sm" disabled={aClosed} onClick={() => closeCategory('a')}>Nobody</button>
+                        )}
+                        {aAwarded.size > 0 && !aClosed && (
+                          <button className="btn sm" onClick={() => closeCategory('a')}>Done</button>
+                        )}
                       </div>
 
-                      <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!(tDone && aDone)}
+                      <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!(tClosed && aClosed)}
                         onClick={nextSong}>{sIdx < tracks.length - 1 ? 'Next song ▶' : 'Tune in the year ▶'}</button>
                     </div>
                   )}
