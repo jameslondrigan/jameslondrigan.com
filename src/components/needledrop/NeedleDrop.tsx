@@ -1,16 +1,11 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import SONGS_DATA from '../../data/needledrop-songs.json';
 
-/* ============================================================
-   Needle Drop — production island (client:only="react")
-   - Enriched data: songs with baked preview URLs play instantly.
-   - JSONP live-resolution (iTunes API) is the fallback for songs
-     without a baked preview, preserving the auto-swap behavior.
-   - Handoff gate before each year guess; tick sound + vibration
-     on the tuner dial.
-   CSP note: allow script-src itunes.apple.com (JSONP) and
-   media-src *.itunes.apple.com / *.mzstatic.com (clips + art).
-   ============================================================ */
+/*
+ * Track Record — music year-guessing party game
+ * Enriched data: songs with baked preview URLs play instantly.
+ * JSONP live-resolution (iTunes API) is the fallback for unenriched songs.
+ */
 
 type SongData = { y: number; t: string; a: string; p: number; w?: number; preview: string | null; art: string | null; g: string };
 type Track = SongData & { preview: string };
@@ -19,18 +14,26 @@ const SONGS = SONGS_DATA as SongData[];
 
 const GENRES = ['Any', 'Rock', 'Pop', 'Country', 'Hip-Hop/R&B', 'Dance/Electronic', 'Other'] as const;
 type Genre = typeof GENRES[number];
+
 const YEARS = [...new Set(SONGS.map((s) => s.y))].sort((a, b) => a - b);
 const YMIN = YEARS[0], YMAX = YEARS[YEARS.length - 1];
 
 const ERAS = [
   { label: 'Everything', min: YMIN, max: YMAX },
-  { label: "'60s\u2013'70s", min: 1960, max: 1979 },
-  { label: "'80s\u2013'90s", min: 1980, max: 1999 },
+  { label: "'60s–'70s", min: 1960, max: 1979 },
+  { label: "'80s–'90s", min: 1980, max: 1999 },
   { label: '2000s on', min: 2000, max: YMAX },
 ];
 
 const yearPts = (d: number) => (d === 0 ? 5 : d <= 1 ? 3 : d <= 3 ? 1 : 0);
-const shuffle = <T,>(a: T[]): T[] => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
+const shuffle = <T,>(a: T[]): T[] => {
+  const r = [...a];
+  for (let i = r.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [r[i], r[j]] = [r[j], r[i]];
+  }
+  return r;
+};
 
 /* ---------- iTunes resolution (JSONP; works in-browser, no CORS) ---------- */
 const norm = (s: string) => (s || '').toLowerCase().replace(/&/g, ' and ').replace(/[^a-z0-9]+/g, ' ').trim();
@@ -48,7 +51,7 @@ function sim(a: string, b: string): number {
 
 function jsonp(url: string, timeoutMs = 8000): Promise<any> {
   return new Promise((resolve, reject) => {
-    const cb = 'ndcb_' + Date.now() + '_' + Math.floor(Math.random() * 1e5);
+    const cb = 'trcb_' + Date.now() + '_' + Math.floor(Math.random() * 1e5);
     const s = document.createElement('script');
     let done = false;
     const cleanup = () => { try { delete (window as any)[cb]; } catch { (window as any)[cb] = undefined; } s.remove(); };
@@ -62,9 +65,7 @@ function jsonp(url: string, timeoutMs = 8000): Promise<any> {
 
 const resolveCache: Record<string, Track | null> = {};
 async function resolveTrack(s: SongData): Promise<Track | null> {
-  // Baked preview from enriched data — instant, no network
   if (s.preview) return { ...s, preview: s.preview } as Track;
-  // JSONP live-resolution fallback for unenriched songs
   const key = s.t + '|' + s.a;
   if (key in resolveCache) return resolveCache[key];
   let out: Track | null = null;
@@ -83,20 +84,17 @@ async function resolveTrack(s: SongData): Promise<Track | null> {
     if (best && best.ts >= 0.6 && best.as >= 0.55) {
       out = { ...s, preview: best.r.previewUrl, art: (best.r.artworkUrl100 || '').replace('100x100', '300x300') || null } as Track;
     }
-  } catch { /* treated as unresolved; caller swaps in another song */ }
+  } catch { }
   resolveCache[key] = out;
   return out;
 }
 
-/** Build a round: baked-preview songs first (instant), JSONP fallback for null-preview songs. */
 async function resolveRound(candidates: SongData[], want = 3): Promise<Track[]> {
   const found: Track[] = [];
-  // Pass 1: baked previews (instant, no network)
   for (const c of candidates) {
     if (found.length >= want) break;
     if (c.preview) found.push({ ...c, preview: c.preview } as Track);
   }
-  // Pass 2: JSONP live-resolution for remaining slots
   if (found.length < want) {
     for (const c of candidates) {
       if (found.length >= want) break;
@@ -108,90 +106,213 @@ async function resolveRound(candidates: SongData[], want = 3): Promise<Track[]> 
   return found;
 }
 
-/* ---------- tuner feedback: tick sound (all phones) + vibration (bonus) ---------- */
-function useTick() {
-  const ctxRef = useRef<AudioContext | null>(null);
-  return () => {
-    try {
-      if (!ctxRef.current) ctxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
-      const ctx = ctxRef.current;
-      if (ctx.state === 'suspended') ctx.resume();
-      const o = ctx.createOscillator(), g = ctx.createGain();
-      o.type = 'square'; o.frequency.value = 1150;
-      g.gain.setValueAtTime(0.06, ctx.currentTime);
-      g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.03);
-      o.connect(g); g.connect(ctx.destination);
-      o.start(); o.stop(ctx.currentTime + 0.035);
-    } catch { /* audio not available; silent fallback */ }
-    if (navigator.vibrate) navigator.vibrate(8); // Android bonus; iOS Safari has no Vibration API
-  };
+/* ---------- Shared audio context (all sounds share one per page) ---------- */
+const _ac = { current: null as AudioContext | null };
+function getAC(): AudioContext | null {
+  try {
+    if (!_ac.current) _ac.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+    if (_ac.current.state === 'suspended') _ac.current.resume();
+    return _ac.current;
+  } catch { return null; }
 }
+
+function playTick() {
+  const ctx = getAC(); if (!ctx) return;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'square'; o.frequency.value = 1150;
+  g.gain.setValueAtTime(0.06, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.03);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(); o.stop(ctx.currentTime + 0.035);
+  if (navigator.vibrate) navigator.vibrate(8);
+}
+
+function playTonearmClick() {
+  const ctx = getAC(); if (!ctx) return;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.value = 380;
+  o.frequency.exponentialRampToValueAtTime(140, ctx.currentTime + 0.06);
+  g.gain.setValueAtTime(0.14, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.12);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(); o.stop(ctx.currentTime + 0.13);
+}
+
+function playRevealTick(gap: number) {
+  const ctx = getAC(); if (!ctx) return;
+  const o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'square'; o.frequency.value = 700 + (15 - Math.min(gap, 15)) * 60;
+  g.gain.setValueAtTime(0.04, ctx.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.025);
+  o.connect(g); g.connect(ctx.destination);
+  o.start(); o.stop(ctx.currentTime + 0.03);
+}
+
+function playRevealSting() {
+  const ctx = getAC(); if (!ctx) return;
+  const now = ctx.currentTime;
+  const mk = (freq: number, vol: number, dur: number) => {
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.type = 'sine'; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, now);
+    g.gain.setValueAtTime(vol * 0.85, now + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.001, now + dur);
+    o.connect(g); g.connect(ctx.destination);
+    o.start(now); o.stop(now + dur);
+  };
+  mk(880, 0.12, 0.38);
+  mk(1320, 0.07, 0.32);
+  mk(440, 0.05, 0.22);
+}
+
+function useTick() { return playTick; }
 
 /* ------------------------------ styles ------------------------------ */
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
-.nd, .nd * { box-sizing: border-box; margin: 0; padding: 0; }
-.nd {
-  --bg:#160f08; --panel:#211810; --panel2:#2c2114; --line:#3c2d1c;
-  --amber:#F2A93B; --amberhi:#FFC768; --cream:#F5EAD2; --muted:#a48a67;
-  --green:#93CB58; --red:#E4573C;
-  min-height:100vh; background:
-    radial-gradient(1200px 600px at 50% -10%, #2a1d0f 0%, transparent 60%),
-    var(--bg);
-  color:var(--cream); font-family:'Space Grotesk',system-ui,sans-serif;
-  display:flex; align-items:flex-start; justify-content:center; padding:22px 16px 60px;
+@import url('https://fonts.googleapis.com/css2?family=Righteous&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@500;700&display=swap');
+.nd,.nd *{box-sizing:border-box;margin:0;padding:0}
+.nd{
+  --bg:#160f08;--panel:#211810;--panel2:#2c2114;--line:#3c2d1c;
+  --amber:#F2A93B;--amberhi:#FFC768;--cream:#F5EAD2;--muted:#a48a67;
+  --green:#93CB58;--red:#E4573C;--maroon:#500000;
+  min-height:100vh;
+  background:radial-gradient(1200px 600px at 50% -10%,#2a1d0f 0%,transparent 60%),var(--bg);
+  color:var(--cream);font-family:'Space Grotesk',system-ui,sans-serif;
+  display:flex;align-items:flex-start;justify-content:center;padding:22px 16px 60px;
 }
-.nd .wrap { width:100%; max-width:560px; }
-.nd .disp { font-family:'Bebas Neue',Impact,sans-serif; letter-spacing:.02em; line-height:.92; }
-.nd .mono { font-family:'JetBrains Mono',monospace; }
-.nd .eyebrow { font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:.28em; text-transform:uppercase; color:var(--amber); }
-.nd .muted { color:var(--muted); }
-.nd .card { background:linear-gradient(180deg,var(--panel2),var(--panel)); border:1px solid var(--line); border-radius:18px; padding:22px; }
-.nd .btn { font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; border:1px solid var(--line); background:var(--panel2); color:var(--cream); border-radius:12px; padding:12px 16px; cursor:pointer; transition:transform .06s ease, border-color .15s, background .15s; min-height:44px; }
-.nd .btn:hover { border-color:var(--amber); }
-.nd .btn:active { transform:translateY(1px); }
-.nd .btn:disabled { opacity:.4; cursor:default; }
-.nd .btn.primary { background:linear-gradient(180deg,var(--amberhi),var(--amber)); color:#2a1a06; border:none; box-shadow:0 6px 24px -8px var(--amber); }
-.nd .btn.wide { width:100%; }
-.nd .btn.sm { font-size:13px; padding:10px 14px; border-radius:10px; }
-.nd .chip { font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:.12em; text-transform:uppercase; padding:9px 13px; border-radius:999px; border:1px solid var(--line); background:transparent; color:var(--muted); cursor:pointer; min-height:38px; }
-.nd .chip.on { color:#2a1a06; background:var(--amber); border-color:var(--amber); font-weight:700; }
-.nd .row { display:flex; gap:8px; flex-wrap:wrap; }
-.nd input.name { flex:1; background:#160f08; border:1px solid var(--line); border-radius:10px; padding:12px 13px; color:var(--cream); font-family:'Space Grotesk',sans-serif; font-size:16px; min-width:0; }
-.nd input.name:focus { outline:none; border-color:var(--amber); }
-.nd .eq { display:flex; align-items:flex-end; gap:5px; height:46px; }
-.nd .eq span { width:6px; background:linear-gradient(var(--amberhi),var(--amber)); border-radius:3px; animation:ndbounce 900ms ease-in-out infinite; }
-.nd .eq span:nth-child(1){animation-delay:0ms} .nd .eq span:nth-child(2){animation-delay:120ms} .nd .eq span:nth-child(3){animation-delay:240ms} .nd .eq span:nth-child(4){animation-delay:80ms} .nd .eq span:nth-child(5){animation-delay:300ms} .nd .eq span:nth-child(6){animation-delay:180ms} .nd .eq span:nth-child(7){animation-delay:40ms}
-@keyframes ndbounce { 0%,100%{height:12px} 50%{height:46px} }
-.nd .eq.idle span { animation-play-state:paused; height:14px; }
-.nd .yearbig { font-family:'JetBrains Mono',monospace; font-weight:700; font-size:64px; color:var(--amberhi); text-shadow:0 0 26px rgba(242,169,59,.45); text-align:center; }
-.nd .tuner { position:relative; margin:6px 0 2px; }
-.nd .ticks { position:relative; height:22px; margin-bottom:6px; }
-.nd .tick { position:absolute; top:0; width:1px; height:9px; background:var(--line); }
-.nd .tick.dec { height:16px; background:var(--muted); }
-.nd .ticklab { position:absolute; top:12px; transform:translateX(-50%); font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--muted); }
-.nd input[type=range].dial { -webkit-appearance:none; appearance:none; width:100%; height:8px; border-radius:6px; background:linear-gradient(90deg,#3a2c1c,#6b5330); outline:none; }
-.nd input[type=range].dial::-webkit-slider-thumb { -webkit-appearance:none; appearance:none; width:14px; height:38px; border-radius:4px; background:linear-gradient(var(--amberhi),var(--amber)); box-shadow:0 0 16px 2px rgba(242,169,59,.6); cursor:pointer; }
-.nd input[type=range].dial::-moz-range-thumb { width:14px; height:38px; border:none; border-radius:4px; background:var(--amber); box-shadow:0 0 16px 2px rgba(242,169,59,.6); cursor:pointer; }
-.nd .standing { display:flex; align-items:center; justify-content:space-between; padding:13px 15px; border-radius:12px; background:var(--panel2); border:1px solid var(--line); margin-bottom:8px; }
-.nd .standing.lead { border-color:var(--amber); background:linear-gradient(180deg,#33260f,var(--panel2)); }
-.nd .score { font-family:'Bebas Neue',sans-serif; font-size:30px; color:var(--amberhi); }
-.nd .pts { font-family:'Bebas Neue',sans-serif; font-size:22px; }
-.nd .pts.win { color:var(--green); } .nd .pts.zero { color:var(--muted); }
-.nd .dots { display:flex; gap:6px; justify-content:center; }
-.nd .dot { width:8px; height:8px; border-radius:50%; background:var(--line); }
-.nd .dot.on { background:var(--amber); }
-.nd .dot.done { background:var(--muted); }
-.nd .title2 { font-family:'Bebas Neue',sans-serif; font-size:34px; line-height:1; letter-spacing:.01em; }
-.nd .hint { font-size:13px; }
-.nd .revealart { width:72px; height:72px; border-radius:10px; border:1px solid var(--line); object-fit:cover; }
-.nd .gate { text-align:center; padding:46px 22px; }
-@media (prefers-reduced-motion: reduce){ .nd .eq span{ animation:none; height:30px; } }
+.nd .wrap{width:100%;max-width:560px}
+.nd .disp{font-family:'Righteous',sans-serif;letter-spacing:.02em;line-height:.92}
+.nd .mono{font-family:'JetBrains Mono',monospace}
+.nd .eyebrow{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.28em;text-transform:uppercase;color:var(--amber)}
+.nd .muted{color:var(--muted)}
+.nd .hint{font-size:13px}
+.nd .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:18px;padding:22px}
+.nd .btn{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;border:1px solid var(--line);background:var(--panel2);color:var(--cream);border-radius:12px;padding:12px 16px;cursor:pointer;transition:transform .06s ease,border-color .15s,background .15s;min-height:44px}
+.nd .btn:hover{border-color:var(--amber)}
+.nd .btn:active{transform:translateY(1px)}
+.nd .btn:disabled{opacity:.4;cursor:default;transform:none}
+.nd .btn.primary{background:linear-gradient(180deg,var(--amberhi),var(--amber));color:#2a1a06;border:none;box-shadow:0 6px 24px -8px var(--amber)}
+.nd .btn.wide{width:100%}
+.nd .btn.sm{font-size:13px;padding:10px 14px;border-radius:10px}
+.nd .chip{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;padding:9px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;min-height:38px}
+.nd .chip.on{color:#2a1a06;background:var(--amber);border-color:var(--amber);font-weight:700}
+.nd .row{display:flex;gap:8px;flex-wrap:wrap}
+.nd input.name{flex:1;background:#160f08;border:1px solid var(--line);border-radius:10px;padding:12px 13px;color:var(--cream);font-family:'Space Grotesk',sans-serif;font-size:16px;min-width:0}
+.nd input.name:focus{outline:none;border-color:var(--amber)}
+.nd .nd-tt{position:relative;width:240px;height:240px;margin:0 auto 20px}
+.nd .nd-platter{position:absolute;inset:0;border-radius:50%;background:#0e0908;border:2px solid #241a10;box-shadow:0 0 0 5px #160f08,0 8px 28px rgba(0,0,0,.7)}
+.nd .nd-record{position:absolute;inset:20px;border-radius:50%}
+.nd .nd-spinning{animation:nd-vspin 1.8s linear infinite}
+@keyframes nd-vspin{to{transform:rotate(360deg)}}
+.nd .nd-arm{position:absolute;top:-5px;right:-20px;pointer-events:none;transform-origin:60px 15px;transform:rotate(28deg);transition:transform .9s cubic-bezier(.4,0,.2,1)}
+.nd .nd-arm.nd-arm-play{transform:rotate(-2deg)}
+.nd .vu{display:flex;align-items:flex-end;gap:4px;height:44px}
+.nd .vu b{width:7px;border-radius:2px 2px 1px 1px;background:var(--amber);height:6px;display:block}
+.nd .vu b.on{animation:nd-vu var(--d,700ms) ease-in-out infinite;animation-delay:var(--ad,0ms)}
+.nd .vu b.hi{background:#e06030}
+@keyframes nd-vu{0%,100%{height:6px}50%{height:44px}}
+.nd .gate{text-align:center;padding:46px 22px}
+.nd .dots{display:flex;gap:6px;justify-content:center}
+.nd .dot{width:8px;height:8px;border-radius:50%;background:var(--line)}
+.nd .dot.on{background:var(--amber)}
+.nd .dot.done{background:var(--muted)}
+.nd .yearbig{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:64px;color:var(--amberhi);text-shadow:0 0 26px rgba(242,169,59,.45);text-align:center}
+.nd .tuner{position:relative;margin:6px 0 2px}
+.nd .ticks{position:relative;height:22px;margin-bottom:6px}
+.nd .tick{position:absolute;top:0;width:1px;height:9px;background:var(--line)}
+.nd .tick.dec{height:16px;background:var(--muted)}
+.nd .ticklab{position:absolute;top:12px;transform:translateX(-50%);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)}
+.nd input[type=range].dial{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:6px;background:linear-gradient(90deg,#3a2c1c,#6b5330);outline:none}
+.nd input[type=range].dial::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:38px;border-radius:4px;background:linear-gradient(var(--amberhi),var(--amber));box-shadow:0 0 16px 2px rgba(242,169,59,.6);cursor:pointer}
+.nd input[type=range].dial::-moz-range-thumb{width:14px;height:38px;border:none;border-radius:4px;background:var(--amber);box-shadow:0 0 16px 2px rgba(242,169,59,.6);cursor:pointer}
+.nd .nudge-row{display:flex;gap:8px;align-items:center;margin-top:14px}
+.nd .nd-nudge{font-family:'JetBrains Mono',monospace;font-size:20px;font-weight:700;padding:10px 16px;flex-shrink:0}
+.nd .reveal-yr{font-family:'Righteous',sans-serif;font-size:88px;line-height:1;color:var(--amberhi);text-shadow:0 0 40px rgba(242,169,59,.5);text-align:center}
+.nd .reveal-sweep{height:4px;border-radius:2px;background:var(--panel2);margin:10px 0 22px;overflow:hidden}
+.nd .reveal-sweep-fill{height:100%;background:linear-gradient(90deg,var(--amber),var(--amberhi));border-radius:2px;transition:width .06s linear}
+.nd .standing{display:flex;align-items:center;justify-content:space-between;padding:13px 15px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);margin-bottom:8px}
+.nd .standing.lead{border-color:var(--amber);background:linear-gradient(180deg,#33260f,var(--panel2))}
+.nd .pts{font-family:'Righteous',sans-serif;font-size:22px}
+.nd .pts.win{color:var(--green)}
+.nd .pts.zero{color:var(--muted)}
+.nd .title2{font-family:'Righteous',sans-serif;font-size:32px;line-height:1}
+.nd .revealart{width:72px;height:72px;border-radius:10px;border:1px solid var(--line);object-fit:cover}
+.nd .chart-row{display:flex;align-items:center;gap:10px;padding:12px 14px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);margin-bottom:8px}
+.nd .chart-row.lead{border-color:var(--amber);background:linear-gradient(180deg,#33260f,var(--panel2))}
+.nd .chart-pos{font-family:'Righteous',sans-serif;font-size:22px;width:36px;text-align:center;color:var(--muted);flex-shrink:0}
+.nd .chart-pos-1{display:inline-flex;align-items:center;justify-content:center;width:32px;height:32px;border-radius:6px;background:var(--maroon);color:var(--cream);font-size:18px}
+.nd .chart-move{font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;flex-shrink:0;min-width:30px;text-align:right}
+.nd .nd-up{color:var(--green)}
+.nd .nd-down{color:var(--red)}
+.nd .nd-hold{color:var(--muted)}
+.nd .chart-score{font-family:'Righteous',sans-serif;font-size:26px;color:var(--amberhi)}
+@media(prefers-reduced-motion:reduce){
+  .nd .nd-spinning{animation:none!important}
+  .nd .nd-arm{transition:none!important}
+  .nd .vu b.on{animation:none!important;height:24px}
+}
 `;
 
-const Eq = ({ idle = false }: { idle?: boolean }) => (
-  <div className={'eq' + (idle ? ' idle' : '')} aria-hidden="true">
-    {Array.from({ length: 7 }).map((_, i) => <span key={i} />)}
+/* ---- 7-bar VU meter (replaces EQ bars) ---- */
+const VuMeter = ({ active }: { active: boolean }) => {
+  const bars = [
+    { d: '600ms', ad: '0ms' },
+    { d: '800ms', ad: '120ms' },
+    { d: '700ms', ad: '240ms' },
+    { d: '900ms', ad: '80ms' },
+    { d: '650ms', ad: '300ms' },
+    { d: '750ms', ad: '180ms' },
+    { d: '850ms', ad: '40ms' },
+  ];
+  return (
+    <div className="vu" aria-hidden="true">
+      {bars.map((bar, i) => (
+        <b
+          key={i}
+          className={[active ? 'on' : '', i >= 5 ? 'hi' : ''].filter(Boolean).join(' ')}
+          style={{ '--d': bar.d, '--ad': bar.ad } as React.CSSProperties}
+        />
+      ))}
+    </div>
+  );
+};
+
+/* ---- Vinyl turntable with tonearm ---- */
+const Turntable = ({ playing }: { playing: boolean }) => (
+  <div className="nd-tt">
+    <div className="nd-platter" />
+    <div className={'nd-record' + (playing ? ' nd-spinning' : '')}>
+      <svg viewBox="0 0 200 200" style={{ display: 'block', width: '100%', height: '100%', borderRadius: '50%' }}>
+        <circle cx="100" cy="100" r="99" fill="#111214" />
+        {/* Groove rings */}
+        {Array.from({ length: 16 }, (_, i) => 32 + i * 3.8).map((r, i) => (
+          <circle key={i} cx="100" cy="100" r={r} fill="none" stroke="rgba(255,255,255,0.04)" strokeWidth="0.7" />
+        ))}
+        <circle cx="100" cy="100" r="98" fill="none" stroke="rgba(255,255,255,0.06)" strokeWidth="1.2" />
+        {/* Center label */}
+        <circle cx="100" cy="100" r="28" fill="#500000" />
+        <circle cx="100" cy="100" r="27" fill="none" stroke="#6a0000" strokeWidth="1" />
+        <circle cx="100" cy="100" r="3" fill="#160f08" />
+        <text x="100" y="97" textAnchor="middle" fontFamily="Righteous,sans-serif" fontSize="8.5" fill="#F5EAD2" letterSpacing="0.6">TRACK</text>
+        <text x="100" y="109" textAnchor="middle" fontFamily="Righteous,sans-serif" fontSize="8.5" fill="#F5EAD2" letterSpacing="0.6">RECORD</text>
+      </svg>
+    </div>
+    {/* Tonearm — pivot at (60,15) in SVG coords, rotates around that point */}
+    <svg
+      width="70" height="170"
+      viewBox="0 0 70 170"
+      className={'nd-arm' + (playing ? ' nd-arm-play' : '')}
+      aria-hidden="true"
+    >
+      <line x1="60" y1="15" x2="67" y2="4" stroke="#a48a67" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="67" cy="2" r="5.5" fill="#2e221a" stroke="#8a7455" strokeWidth="1.5" />
+      <circle cx="60" cy="15" r="7.5" fill="#2e221a" stroke="#a48a67" strokeWidth="1.5" />
+      <circle cx="60" cy="15" r="3" fill="#c8a878" />
+      <line x1="60" y1="15" x2="8" y2="155" stroke="#b09870" strokeWidth="3.2" strokeLinecap="round" />
+      <line x1="8" y1="155" x2="1" y2="145" stroke="#b09870" strokeWidth="2.5" strokeLinecap="round" />
+      <line x1="8" y1="155" x2="14" y2="148" stroke="#8a7455" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="1" cy="144" r="2" fill="#d4aa70" />
+    </svg>
   </div>
 );
 
@@ -222,6 +343,10 @@ export default function NeedleDrop() {
   const [guesses, setGuesses] = useState<Record<string, number>>({});
   const [yRes, setYRes] = useState<{ pid: string; name: string; guess: number; pts: number }[]>([]);
 
+  const [prevRanks, setPrevRanks] = useState<Record<string, number>>({});
+  const [revealYear, setRevealYear] = useState(0);
+  const [revealDone, setRevealDone] = useState(false);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const roundSeq = useRef(0);
   const [playing, setPlaying] = useState(false);
@@ -241,7 +366,29 @@ export default function NeedleDrop() {
   }, [pool]);
   const midYear = Math.round((era.min + era.max) / 2);
 
-  /** Start a round: pick a year, resolve clips — baked previews first, JSONP fallback for nulls. */
+  /* Reveal count-up — accelerating ticks then landing sting */
+  useEffect(() => {
+    if (phase !== 'reveal' || target === null) return;
+    setRevealDone(false);
+    const reduced = typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduced) { setRevealYear(target); setRevealDone(true); return; }
+    const startYear = target - 15;
+    setRevealYear(startYear);
+    let curr = startYear;
+    let cancelled = false;
+    let tid: ReturnType<typeof setTimeout>;
+    const step = () => {
+      if (cancelled) return;
+      if (curr >= target) { setRevealDone(true); playRevealSting(); return; }
+      curr++;
+      setRevealYear(curr);
+      playRevealTick(target - curr);
+      tid = setTimeout(step, Math.max(25, 20 + (target - curr) * 7));
+    };
+    tid = setTimeout(step, 450);
+    return () => { cancelled = true; clearTimeout(tid); };
+  }, [phase, target]);
+
   function startRound() {
     const seq = ++roundSeq.current;
     setLoadState('loading'); setTracks([]);
@@ -251,8 +398,7 @@ export default function NeedleDrop() {
     const yr = poolYears[Math.floor(Math.random() * poolYears.length)];
     setTarget(yr);
     const shuffled = shuffle(pool.filter((s) => s.y === yr));
-    // Baked previews first so rounds start instantly when data is enriched
-    const candidates = [...shuffled.filter(s => s.preview !== null), ...shuffled.filter(s => s.preview === null)];
+    const candidates = [...shuffled.filter((s) => s.preview !== null), ...shuffled.filter((s) => s.preview === null)];
     resolveRound(candidates, 3).then((found) => {
       if (roundSeq.current !== seq) return;
       if (found.length >= 3) { setTracks(found.slice(0, 3)); setLoadState('ready'); }
@@ -264,7 +410,7 @@ export default function NeedleDrop() {
   function start() {
     const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
     if (ps.length === 0) return;
-    setPlayers(ps); setRound(1); startRound(); setPhase('song');
+    setPlayers(ps); setPrevRanks({}); setRound(1); startRound(); setPhase('song');
   }
 
   function stopAudio() { const a = audioRef.current; if (a) a.pause(); setPlaying(false); }
@@ -274,7 +420,9 @@ export default function NeedleDrop() {
     if (playing) { a.pause(); setPlaying(false); return; }
     try {
       if (!a.src || !a.src.includes(t.preview)) { a.src = t.preview; a.currentTime = 0; }
-      await a.play(); setPlaying(true);
+      await a.play();
+      setPlaying(true);
+      playTonearmClick();
     } catch { setPlaying(false); }
   }
 
@@ -305,19 +453,37 @@ export default function NeedleDrop() {
     setGuesses(g);
     if (gIdx < players.length - 1) { setGIdx((i) => i + 1); setPhase('handoff'); }
     else {
-      const res = players.map((pl) => ({ pid: pl.id, name: pl.name, guess: g[pl.id], pts: yearPts(Math.abs(g[pl.id] - (target as number))) }));
+      const res = players.map((pl) => ({
+        pid: pl.id, name: pl.name, guess: g[pl.id],
+        pts: yearPts(Math.abs(g[pl.id] - (target as number))),
+      }));
       setYRes(res);
       setPlayers((ps) => ps.map((pl) => { const r = res.find((x) => x.pid === pl.id); return { ...pl, score: pl.score + (r ? r.pts : 0) }; }));
       setPhase('reveal');
     }
   }
 
-  const nextRound = () => { setRound((r) => r + 1); startRound(); setPhase('song'); };
-  const playAgain = () => { setPlayers((ps) => ps.map((p) => ({ ...p, score: 0 }))); setRound(1); startRound(); setPhase('song'); };
+  const nextRound = () => {
+    const currentSorted = [...players].sort((a, b) => b.score - a.score);
+    const ranks: Record<string, number> = {};
+    currentSorted.forEach((p, i) => { ranks[p.id] = i + 1; });
+    setPrevRanks(ranks);
+    setRound((r) => r + 1); startRound(); setPhase('song');
+  };
+
+  const playAgain = () => {
+    setPrevRanks({});
+    setPlayers((ps) => ps.map((p) => ({ ...p, score: 0 })));
+    setRound(1); startRound(); setPhase('song');
+  };
+
   const sorted = [...players].sort((a, b) => b.score - a.score);
   const song = tracks[sIdx];
-
   const onDial = (v: number) => { if (v !== tuner) { tick(); setTuner(v); } };
+  const nudge = (delta: number) => {
+    const v = Math.max(era.min, Math.min(era.max, tuner + delta));
+    if (v !== tuner) { tick(); setTuner(v); }
+  };
 
   useEffect(() => () => stopAudio(), []);
 
@@ -326,18 +492,42 @@ export default function NeedleDrop() {
     ticks.push({ y, pct: ((y - era.min) / (era.max - era.min)) * 100, dec: y % 10 === 0 });
   }
 
+  const revealProgress = target !== null
+    ? (revealDone ? 1 : Math.max(0, (revealYear - (target - 15)) / 15))
+    : 0;
+
+  const ChartRow = ({ p, rank }: { p: Player; rank: number }) => {
+    const prev = prevRanks[p.id];
+    const move = prev !== undefined ? prev - rank : null;
+    return (
+      <div className={'chart-row' + (rank === 1 ? ' lead' : '')}>
+        <div className="chart-pos">
+          {rank === 1 ? <span className="chart-pos-1">1</span> : rank}
+        </div>
+        <div style={{ flex: 1, fontWeight: 600 }}>{p.name}</div>
+        {move !== null && (
+          <div className={'chart-move ' + (move > 0 ? 'nd-up' : move < 0 ? 'nd-down' : 'nd-hold')}>
+            {move > 0 ? `▲${move}` : move < 0 ? `▼${Math.abs(move)}` : '—'}
+          </div>
+        )}
+        <div className="chart-score">{p.score}</div>
+      </div>
+    );
+  };
+
   return (
     <div className="nd">
       <style>{CSS}</style>
       <audio ref={audioRef} onEnded={() => setPlaying(false)} />
       <div className="wrap">
 
+        {/* ===== SETUP ===== */}
         {phase === 'setup' && (
           <>
             <div style={{ textAlign: 'center', marginBottom: 6 }}>
-              <div className="eyebrow" style={{ marginBottom: 10 }}>Billboard Hot 100 · {YMIN}–{YMAX}</div>
-              <div className="disp" style={{ fontSize: 78 }}>NEEDLE<br />DROP</div>
-              <div className="muted" style={{ marginTop: 8 }}>Name the song, then tune in the year it hit the top 10.</div>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>Top chart hits &middot; {YMIN}&ndash;{YMAX}</div>
+              <div className="disp" style={{ fontSize: 76 }}>TRACK<br />RECORD</div>
+              <div className="muted" style={{ marginTop: 10 }}>Name the song. Tune in the year.</div>
             </div>
             <div className="card" style={{ marginTop: 20 }}>
               <div className="eyebrow" style={{ marginBottom: 12 }}>Players</div>
@@ -345,10 +535,14 @@ export default function NeedleDrop() {
                 <div className="row" key={i} style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
                   <input className="name" placeholder={'Player ' + (i + 1)} value={n}
                     onChange={(e) => setNames((a) => a.map((x, k) => (k === i ? e.target.value : x)))} />
-                  {names.length > 1 && <button className="btn sm" onClick={() => setNames((a) => a.filter((_, k) => k !== i))}>✕</button>}
+                  {names.length > 1 && (
+                    <button className="btn sm" onClick={() => setNames((a) => a.filter((_, k) => k !== i))}>&times;</button>
+                  )}
                 </div>
               ))}
-              {names.length < 8 && <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>}
+              {names.length < 8 && (
+                <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>
+              )}
 
               <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
               <div className="row">
@@ -364,7 +558,7 @@ export default function NeedleDrop() {
                 ))}
               </div>
               {tier === 3 && (
-                <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Strictest pool — fewer years in play.</div>
+                <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Strictest pool &mdash; fewer years in play.</div>
               )}
 
               <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Genre</div>
@@ -376,45 +570,57 @@ export default function NeedleDrop() {
 
               {!poolYears.length && (
                 <div className="hint" style={{ color: 'var(--red)', marginTop: 12, textAlign: 'center' }}>
-                  No years match these filters — loosen one.
+                  No years match these filters &mdash; loosen one.
                 </div>
               )}
-              <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>Start game ▶</button>
+              <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>
+                Start game &#9654;
+              </button>
             </div>
             <div className="muted hint" style={{ textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>
-              Song +1 · Artist +1 · Year: exact <b style={{ color: 'var(--cream)' }}>5</b>, within 1 yr <b style={{ color: 'var(--cream)' }}>3</b>, within 3 yrs <b style={{ color: 'var(--cream)' }}>1</b>
+              Song +1 &middot; Artist +1 &middot; Year: exact <b style={{ color: 'var(--cream)' }}>5</b>, within 1 yr <b style={{ color: 'var(--cream)' }}>3</b>, within 3 yrs <b style={{ color: 'var(--cream)' }}>1</b>
             </div>
           </>
         )}
 
+        {/* ===== SONG ===== */}
         {phase === 'song' && (
           <>
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div className="eyebrow">Round {round} · Song {Math.min(sIdx + 1, 3)} of {tracks.length || 3}</div>
+              <div className="eyebrow">Round {round} &middot; Song {Math.min(sIdx + 1, 3)} of {tracks.length || 3}</div>
               <div className="eyebrow muted">Year: ????</div>
             </div>
+
+            <Turntable playing={playing} />
+
             <div className="card" style={{ textAlign: 'center' }}>
               {loadState === 'loading' && (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0 16px' }}><Eq /></div>
-                  <div className="muted">Dropping the needle…</div>
+                  <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0 16px' }}>
+                    <VuMeter active={false} />
+                  </div>
+                  <div className="muted">Dropping the needle&hellip;</div>
                 </>
               )}
               {loadState === 'failed' && (
                 <>
-                  <div className="muted" style={{ marginBottom: 14 }}>Couldn't tune in that year — likely a network hiccup.</div>
-                  <button className="btn primary" onClick={startRound}>Spin again ↻</button>
+                  <div className="muted" style={{ marginBottom: 14 }}>Couldn&apos;t tune in that year &mdash; likely a network hiccup.</div>
+                  <button className="btn primary" onClick={startRound}>Spin again &#8635;</button>
                 </>
               )}
               {loadState === 'ready' && song && (
                 <>
-                  <div style={{ display: 'flex', justifyContent: 'center', margin: '6px 0 20px' }}><Eq idle={!playing} /></div>
+                  <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                    <VuMeter active={playing} />
+                  </div>
                   <button className="btn primary" onClick={() => togglePlay(song)} style={{ fontSize: 17, padding: '14px 26px' }}>
                     {playing ? '⏸ Pause' : '▶ Play clip'}
                   </button>
 
                   {!revealed ? (
-                    <button className="btn wide" style={{ marginTop: 22 }} onClick={() => setRevealed(true)}>Reveal answer</button>
+                    <button className="btn wide" style={{ marginTop: 22 }} onClick={() => setRevealed(true)}>
+                      Reveal answer
+                    </button>
                   ) : (
                     <div style={{ marginTop: 22, textAlign: 'left' }}>
                       <div className="row" style={{ alignItems: 'center', flexWrap: 'nowrap', gap: 14 }}>
@@ -422,7 +628,7 @@ export default function NeedleDrop() {
                         <div>
                           <div className="title2">{song.t}</div>
                           <div style={{ color: 'var(--amber)', fontWeight: 600, marginTop: 2 }}>{song.a}</div>
-                          <div className="muted hint mono" style={{ marginTop: 4 }}>hit #{song.p} · {song.y}</div>
+                          <div className="muted hint mono" style={{ marginTop: 4 }}>hit #{song.p} &middot; {song.y}</div>
                         </div>
                       </div>
 
@@ -459,7 +665,9 @@ export default function NeedleDrop() {
                       </div>
 
                       <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!(tClosed && aClosed)}
-                        onClick={nextSong}>{sIdx < tracks.length - 1 ? 'Next song ▶' : 'Tune in the year ▶'}</button>
+                        onClick={nextSong}>
+                        {sIdx < tracks.length - 1 ? 'Next song ▶' : 'Tune in the year ▶'}
+                      </button>
                     </div>
                   )}
                 </>
@@ -468,22 +676,30 @@ export default function NeedleDrop() {
           </>
         )}
 
+        {/* ===== HANDOFF ===== */}
         {phase === 'handoff' && (
           <div className="card gate">
-            <div className="eyebrow" style={{ marginBottom: 14 }}>Round {round} · Year guess</div>
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Round {round} &middot; Year guess</div>
             <div className="muted">Pass the phone to</div>
-            <div className="disp" style={{ fontSize: 56, margin: '6px 0 18px', color: 'var(--amberhi)' }}>{players[gIdx].name}</div>
-            <div className="muted hint" style={{ marginBottom: 22 }}>Everyone else, eyes up — guesses stay secret.</div>
-            <button className="btn primary wide" onClick={beginGuess}>I'm {players[gIdx].name} — show the dial ▶</button>
+            <div className="disp" style={{ fontSize: 56, margin: '6px 0 18px', color: 'var(--amberhi)' }}>
+              {players[gIdx].name}
+            </div>
+            <div className="muted hint" style={{ marginBottom: 22 }}>Everyone else, eyes up &mdash; guesses stay secret.</div>
+            <button className="btn primary wide" onClick={beginGuess}>
+              I&apos;m {players[gIdx].name} &mdash; show the dial ▶
+            </button>
             <div className="dots" style={{ marginTop: 18 }}>
-              {players.map((p, i) => <div key={p.id} className={'dot' + (i === gIdx ? ' on' : i < gIdx ? ' done' : '')} />)}
+              {players.map((p, i) => (
+                <div key={p.id} className={'dot' + (i === gIdx ? ' on' : i < gIdx ? ' done' : '')} />
+              ))}
             </div>
           </div>
         )}
 
+        {/* ===== YEAR ===== */}
         {phase === 'year' && (
           <>
-            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} · Tune in the year</div>
+            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Tune in the year</div>
             <div className="card">
               <div style={{ textAlign: 'center' }}>
                 <div className="title2" style={{ margin: '2px 0 14px' }}>{players[gIdx].name}</div>
@@ -494,72 +710,91 @@ export default function NeedleDrop() {
                   {ticks.map((t) => (
                     <React.Fragment key={t.y}>
                       <div className={'tick' + (t.dec ? ' dec' : '')} style={{ left: t.pct + '%' }} />
-                      {t.dec && <div className="ticklab" style={{ left: t.pct + '%' }}>{"'" + String(t.y).slice(2)}</div>}
+                      {t.dec && (
+                        <div className="ticklab" style={{ left: t.pct + '%' }}>&apos;{String(t.y).slice(2)}</div>
+                      )}
                     </React.Fragment>
                   ))}
                 </div>
                 <input className="dial" type="range" min={era.min} max={era.max} value={tuner}
                   onChange={(e) => onDial(+e.target.value)} />
               </div>
-              <button className="btn primary wide" style={{ marginTop: 22 }} onClick={lockYear}>Lock in ▶</button>
+              <div className="nudge-row">
+                <button className="btn nd-nudge" onClick={() => nudge(-1)} aria-label="Year minus 1">&minus;</button>
+                <button className="btn primary" style={{ flex: 1 }} onClick={lockYear}>Lock in ▶</button>
+                <button className="btn nd-nudge" onClick={() => nudge(+1)} aria-label="Year plus 1">+</button>
+              </div>
             </div>
           </>
         )}
 
+        {/* ===== REVEAL ===== */}
         {phase === 'reveal' && (
           <>
-            <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 8 }}>The year was</div>
-            <div className="yearbig" style={{ fontSize: 80 }}>{target}</div>
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 20px' }}><Eq /></div>
-            <div className="card">
-              <div className="eyebrow" style={{ marginBottom: 10 }}>The songs</div>
-              {tracks.map((s, i) => (
-                <div key={i} style={{ marginBottom: 8 }}>
-                  <span style={{ fontWeight: 600 }}>{s.t}</span> <span className="muted">— {s.a}</span>
-                </div>
-              ))}
-              <div className="eyebrow" style={{ margin: '18px 0 10px' }}>Year scoring</div>
-              {yRes.map((r) => (
-                <div className="standing" key={r.pid}>
-                  <div><b>{r.name}</b> <span className="muted mono" style={{ fontSize: 13 }}>guessed {r.guess}</span></div>
-                  <div className={'pts ' + (r.pts > 0 ? 'win' : 'zero')}>+{r.pts}</div>
-                </div>
-              ))}
-              <button className="btn primary wide" style={{ marginTop: 14 }} onClick={() => setPhase('board')}>Continue ▶</button>
+            <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 8 }}>
+              {revealDone ? 'The year was' : 'Tuning in the year…'}
             </div>
+            <div className="reveal-yr">{revealYear || target}</div>
+            {!revealDone && (
+              <div className="reveal-sweep">
+                <div className="reveal-sweep-fill" style={{ width: Math.round(revealProgress * 100) + '%' }} />
+              </div>
+            )}
+            {revealDone && (
+              <div className="card" style={{ marginTop: 20 }}>
+                <div className="eyebrow" style={{ marginBottom: 10 }}>The songs</div>
+                {tracks.map((s, i) => (
+                  <div key={i} style={{ marginBottom: 8 }}>
+                    <span style={{ fontWeight: 600 }}>{s.t}</span>{' '}
+                    <span className="muted">&mdash; {s.a}</span>
+                  </div>
+                ))}
+                <div className="eyebrow" style={{ margin: '18px 0 10px' }}>Year scoring</div>
+                {yRes.map((r) => (
+                  <div className="standing" key={r.pid}>
+                    <div><b>{r.name}</b> <span className="muted mono" style={{ fontSize: 13 }}>guessed {r.guess}</span></div>
+                    <div className={'pts ' + (r.pts > 0 ? 'win' : 'zero')}>+{r.pts}</div>
+                  </div>
+                ))}
+                <button className="btn primary wide" style={{ marginTop: 14 }} onClick={() => setPhase('board')}>
+                  Continue ▶
+                </button>
+              </div>
+            )}
           </>
         )}
 
+        {/* ===== BOARD ===== */}
         {phase === 'board' && (
           <>
             <div className="eyebrow" style={{ marginBottom: 16 }}>After round {round}</div>
             <div className="card">
-              {sorted.map((p, i) => (
-                <div key={p.id} className={'standing' + (i === 0 ? ' lead' : '')}>
-                  <div><b>{i === 0 ? '♛ ' : (i + 1) + '. '}{p.name}</b></div>
-                  <div className="score">{p.score}</div>
-                </div>
-              ))}
+              {sorted.map((p, i) => <ChartRow key={p.id} p={p} rank={i + 1} />)}
               <button className="btn primary wide" style={{ marginTop: 14 }} onClick={nextRound}>Next round ▶</button>
               <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setPhase('end')}>End game</button>
             </div>
           </>
         )}
 
+        {/* ===== END ===== */}
         {phase === 'end' && (
           <>
-            <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 6 }}>Final standings</div>
-            <div className="disp" style={{ fontSize: 52, textAlign: 'center', color: 'var(--amberhi)', marginBottom: 4 }}>{sorted[0].name} wins</div>
-            <div style={{ display: 'flex', justifyContent: 'center', margin: '4px 0 20px' }}><Eq /></div>
+            <div className="eyebrow" style={{ textAlign: 'center', marginBottom: 6 }}>#1 on the chart</div>
+            <div className="disp" style={{ fontSize: 60, textAlign: 'center', color: 'var(--amberhi)', marginBottom: 4 }}>
+              {sorted[0].name}
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 20px' }}>
+              <VuMeter active={true} />
+            </div>
             <div className="card">
-              {sorted.map((p, i) => (
-                <div key={p.id} className={'standing' + (i === 0 ? ' lead' : '')}>
-                  <div><b>{i === 0 ? '♛ ' : (i + 1) + '. '}{p.name}</b></div>
-                  <div className="score">{p.score}</div>
-                </div>
-              ))}
-              <button className="btn primary wide" style={{ marginTop: 14 }} onClick={playAgain}>Play again (same crew) ▶</button>
-              <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setPhase('setup')}>New game</button>
+              <div className="eyebrow" style={{ marginBottom: 12 }}>Final standings</div>
+              {sorted.map((p, i) => <ChartRow key={p.id} p={p} rank={i + 1} />)}
+              <button className="btn primary wide" style={{ marginTop: 14 }} onClick={playAgain}>
+                Play again (same crew) ▶
+              </button>
+              <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setPhase('setup')}>
+                New game
+              </button>
             </div>
           </>
         )}
