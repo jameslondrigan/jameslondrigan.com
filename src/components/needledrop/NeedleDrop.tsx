@@ -25,6 +25,8 @@ const ERAS = [
   { label: '2000s on', min: 2000, max: YMAX },
 ];
 
+const MIN_WEEKS = 12;
+
 const yearPts = (d: number) => (d === 0 ? 5 : d <= 1 ? 3 : d <= 3 ? 1 : 0);
 const shuffle = <T,>(a: T[]): T[] => {
   const r = [...a];
@@ -368,7 +370,7 @@ export default function NeedleDrop() {
   const era = ERAS[eraIdx];
   const pool = useMemo(
     () => SONGS.filter((s) =>
-      s.y >= era.min && s.y <= era.max && s.p <= tier && (genre === 'Any' || s.g === genre)
+      s.y >= era.min && s.y <= era.max && s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS
     ),
     [eraIdx, tier, genre]
   );
@@ -377,6 +379,27 @@ export default function NeedleDrop() {
     pool.forEach((s) => { m[s.y] = (m[s.y] || 0) + 1; });
     return Object.keys(m).map(Number).filter((y) => m[y] >= 3);
   }, [pool]);
+  const emptySuggestion = useMemo((): string | null => {
+    if (poolYears.length > 0) return null;
+    const playable = (songs: SongData[]) => {
+      const m: Record<number, number> = {};
+      songs.forEach((s) => { m[s.y] = (m[s.y] || 0) + 1; });
+      return Object.values(m).some((n) => n >= 3);
+    };
+    if (genre !== 'Any') {
+      if (playable(SONGS.filter((s) => s.y >= era.min && s.y <= era.max && s.p <= tier && (s.w ?? 0) >= MIN_WEEKS)))
+        return `Try Any genre instead of ${genre}.`;
+    }
+    if (tier !== 10) {
+      if (playable(SONGS.filter((s) => s.y >= era.min && s.y <= era.max && s.p <= 10 && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
+        return `Try Top 10 instead of Top ${tier}.`;
+    }
+    if (eraIdx !== 0) {
+      if (playable(SONGS.filter((s) => s.y >= YMIN && s.y <= YMAX && s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
+        return `Try Everything instead of ${era.label}.`;
+    }
+    return 'Try loosening all filters.';
+  }, [poolYears, genre, tier, eraIdx, era]);
   const midYear = Math.round((era.min + era.max) / 2);
 
   /* Reveal count-up: accelerating ticks then landing sting */
@@ -410,8 +433,9 @@ export default function NeedleDrop() {
     setTAwarded(new Set()); setAAwarded(new Set());
     const yr = poolYears[Math.floor(Math.random() * poolYears.length)];
     setTarget(yr);
-    const shuffled = shuffle(pool.filter((s) => s.y === yr));
-    const candidates = [...shuffled.filter((s) => s.preview !== null), ...shuffled.filter((s) => s.preview === null)];
+    const yearPool = pool.filter((s) => s.y === yr);
+    const weighted = [...yearPool].sort((a, b) => ((b.w ?? 0) + Math.random() * 8) - ((a.w ?? 0) + Math.random() * 8));
+    const candidates = [...weighted.filter((s) => s.preview !== null), ...weighted.filter((s) => s.preview === null)];
     resolveRound(candidates, 3).then((found) => {
       if (roundSeq.current !== seq) return;
       if (found.length >= 3) { setTracks(found.slice(0, 3)); setLoadState('ready'); }
@@ -585,9 +609,9 @@ export default function NeedleDrop() {
                     ))}
                   </div>
 
-                  {!poolYears.length && (
+                  {!poolYears.length && emptySuggestion && (
                     <div className="hint" style={{ color: 'var(--red)', marginTop: 12, textAlign: 'center' }}>
-                      No years match these filters. Loosen one.
+                      No years match. {emptySuggestion}
                     </div>
                   )}
                   <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>
@@ -671,16 +695,14 @@ export default function NeedleDrop() {
                     </button>
                   ) : (
                     <div style={{ marginTop: 22, textAlign: 'left' }}>
-                      <div className="row" style={{ alignItems: 'center', flexWrap: 'nowrap', gap: 14 }}>
-                        {song.art && <img className="revealart" src={song.art} alt="" />}
-                        <div>
-                          <div className="title2">{song.t}</div>
-                          <div style={{ color: 'var(--amber)', fontWeight: 600, marginTop: 2 }}>{song.a}</div>
-                          <div className="muted hint mono" style={{ marginTop: 4 }}>hit #{song.p} &middot; {song.y}</div>
-                        </div>
+                      <div>
+                        <div className="title2">{song.t}</div>
+                        <div style={{ color: 'var(--amber)', fontWeight: 600, marginTop: 2 }}>{song.a}</div>
+                        <div className="muted hint mono" style={{ marginTop: 4 }}>hit #{song.p}</div>
                       </div>
 
-                      <div className="eyebrow" style={{ margin: '18px 0 8px' }}>Who named the song? +1</div>
+                      <div className="muted hint" style={{ marginTop: 18, textAlign: 'center' }}>Tap who called it</div>
+                      <div className="eyebrow" style={{ margin: '6px 0 8px' }}>Who named the song? +1</div>
                       <div className="row">
                         {players.map((p) => (
                           <button key={p.id} className="btn sm" disabled={tClosed || tAwarded.has(p.id)}
@@ -793,9 +815,12 @@ export default function NeedleDrop() {
               <div className="card" style={{ marginTop: 20 }}>
                 <div className="eyebrow" style={{ marginBottom: 10 }}>The songs</div>
                 {tracks.map((s, i) => (
-                  <div key={i} style={{ marginBottom: 8 }}>
-                    <span style={{ fontWeight: 600 }}>{s.t}</span>{' '}
-                    <span className="muted">&middot; {s.a}</span>
+                  <div key={i} className="row" style={{ alignItems: 'center', flexWrap: 'nowrap', gap: 12, marginBottom: 10 }}>
+                    {s.art && <img className="revealart" src={s.art} alt="" style={{ width: 48, height: 48 }} />}
+                    <div>
+                      <span style={{ fontWeight: 600 }}>{s.t}</span>{' '}
+                      <span className="muted">&middot; {s.a}</span>
+                    </div>
                   </div>
                 ))}
                 <div className="eyebrow" style={{ margin: '18px 0 10px' }}>Year scoring</div>
