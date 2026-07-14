@@ -18,11 +18,14 @@ type Genre = typeof GENRES[number];
 const YEARS = [...new Set(SONGS.map((s) => s.y))].sort((a, b) => a - b);
 const YMIN = YEARS[0], YMAX = YEARS[YEARS.length - 1];
 
-const ERAS = [
-  { label: 'Everything', min: YMIN, max: YMAX },
-  { label: "'60s–'70s", min: 1960, max: 1979 },
-  { label: "'80s–'90s", min: 1980, max: 1999 },
-  { label: '2000s on', min: 2000, max: YMAX },
+const clampYear = (y: number) => Math.max(YMIN, Math.min(YMAX, y));
+const preset = (label: string, min: number, max: number) => ({ label, min: clampYear(min), max: clampYear(max) });
+const ERA_PRESETS = [
+  preset('Everything', YMIN, YMAX),
+  preset("'50s–'60s", 1958, 1969),
+  preset("'70s–'80s", 1970, 1989),
+  preset("'90s–'00s", 1990, 2009),
+  preset("'10s+", 2010, YMAX),
 ];
 
 const MIN_WEEKS = 12;
@@ -247,6 +250,9 @@ const CSS = `
 .nd .nd-up{color:var(--green)}
 .nd .nd-down{color:var(--red)}
 .nd .nd-hold{color:var(--muted)}
+.nd .chart-delta{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;flex-shrink:0;min-width:26px;text-align:right}
+.nd .chart-delta.up{color:var(--green)}
+.nd .chart-delta.zero{color:var(--muted)}
 .nd .chart-score{font-family:'Righteous',sans-serif;font-size:26px;color:var(--amberhi)}
 @media(prefers-reduced-motion:reduce){
   .nd .nd-spinning{animation:none!important}
@@ -337,7 +343,7 @@ export default function NeedleDrop() {
   const [phase, setPhase] = useState<Phase>('setup');
   const [names, setNames] = useState<string[]>(['', '']);
   const [players, setPlayers] = useState<Player[]>([]);
-  const [eraIdx, setEraIdx] = useState(0);
+  const [range, setRange] = useState<[number, number]>([YMIN, YMAX]);
   const [tier, setTier] = useState<3 | 5 | 10>(5);
   const [genre, setGenre] = useState<Genre>('Any');
   const [round, setRound] = useState(0);
@@ -358,6 +364,7 @@ export default function NeedleDrop() {
   const [yRes, setYRes] = useState<{ pid: string; name: string; guess: number; pts: number }[]>([]);
 
   const [prevRanks, setPrevRanks] = useState<Record<string, number>>({});
+  const [roundStartScores, setRoundStartScores] = useState<Record<string, number>>({});
   const [revealYear, setRevealYear] = useState(0);
   const [revealDone, setRevealDone] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
@@ -367,12 +374,13 @@ export default function NeedleDrop() {
   const [playing, setPlaying] = useState(false);
   const tick = useTick();
 
-  const era = ERAS[eraIdx];
+  const [rMin, rMax] = range;
+  const activePreset = ERA_PRESETS.findIndex((p) => p.min === rMin && p.max === rMax);
   const pool = useMemo(
     () => SONGS.filter((s) =>
-      s.y >= era.min && s.y <= era.max && s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS
+      s.y >= rMin && s.y <= rMax && s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS
     ),
-    [eraIdx, tier, genre]
+    [rMin, rMax, tier, genre]
   );
   const poolYears = useMemo(() => {
     const m: Record<number, number> = {};
@@ -387,20 +395,20 @@ export default function NeedleDrop() {
       return Object.values(m).some((n) => n >= 3);
     };
     if (genre !== 'Any') {
-      if (playable(SONGS.filter((s) => s.y >= era.min && s.y <= era.max && s.p <= tier && (s.w ?? 0) >= MIN_WEEKS)))
+      if (playable(SONGS.filter((s) => s.y >= rMin && s.y <= rMax && s.p <= tier && (s.w ?? 0) >= MIN_WEEKS)))
         return `Try Any genre instead of ${genre}.`;
     }
     if (tier !== 10) {
-      if (playable(SONGS.filter((s) => s.y >= era.min && s.y <= era.max && s.p <= 10 && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
+      if (playable(SONGS.filter((s) => s.y >= rMin && s.y <= rMax && s.p <= 10 && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
         return `Try Top 10 instead of Top ${tier}.`;
     }
-    if (eraIdx !== 0) {
-      if (playable(SONGS.filter((s) => s.y >= YMIN && s.y <= YMAX && s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
-        return `Try Everything instead of ${era.label}.`;
+    if (rMin !== YMIN || rMax !== YMAX) {
+      if (playable(SONGS.filter((s) => s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
+        return 'Try Everything instead of this range.';
     }
     return 'Try loosening all filters.';
-  }, [poolYears, genre, tier, eraIdx, era]);
-  const midYear = Math.round((era.min + era.max) / 2);
+  }, [poolYears, genre, tier, rMin, rMax]);
+  const midYear = Math.round((rMin + rMax) / 2);
 
   /* Reveal count-up: accelerating ticks then landing sting */
   useEffect(() => {
@@ -447,7 +455,9 @@ export default function NeedleDrop() {
   function start() {
     const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
     if (ps.length === 0) return;
-    setPlayers(ps); setPrevRanks({}); setRound(1); startRound(); setPhase('song');
+    setPlayers(ps); setPrevRanks({});
+    setRoundStartScores(Object.fromEntries(ps.map((p) => [p.id, 0])));
+    setRound(1); startRound(); setPhase('song');
   }
 
   function stopAudio() { const a = audioRef.current; if (a) a.pause(); setPlaying(false); }
@@ -505,12 +515,14 @@ export default function NeedleDrop() {
     const ranks: Record<string, number> = {};
     currentSorted.forEach((p, i) => { ranks[p.id] = i + 1; });
     setPrevRanks(ranks);
+    setRoundStartScores(Object.fromEntries(players.map((p) => [p.id, p.score])));
     setRound((r) => r + 1); startRound(); setPhase('song');
   };
 
   const playAgain = () => {
     setPrevRanks({});
     setPlayers((ps) => ps.map((p) => ({ ...p, score: 0 })));
+    setRoundStartScores(Object.fromEntries(players.map((p) => [p.id, 0])));
     setRound(1); startRound(); setPhase('song');
   };
 
@@ -518,15 +530,15 @@ export default function NeedleDrop() {
   const song = tracks[sIdx];
   const onDial = (v: number) => { if (v !== tuner) { tick(); setTuner(v); } };
   const nudge = (delta: number) => {
-    const v = Math.max(era.min, Math.min(era.max, tuner + delta));
+    const v = Math.max(rMin, Math.min(rMax, tuner + delta));
     if (v !== tuner) { tick(); setTuner(v); }
   };
 
   useEffect(() => () => stopAudio(), []);
 
   const ticks: { y: number; pct: number; dec: boolean }[] = [];
-  for (let y = Math.ceil(era.min / 5) * 5; y <= era.max; y += 5) {
-    ticks.push({ y, pct: ((y - era.min) / (era.max - era.min)) * 100, dec: y % 10 === 0 });
+  for (let y = Math.ceil(rMin / 5) * 5; y <= rMax; y += 5) {
+    ticks.push({ y, pct: ((y - rMin) / (rMax - rMin)) * 100, dec: y % 10 === 0 });
   }
 
   const revealProgress = target !== null
@@ -536,6 +548,7 @@ export default function NeedleDrop() {
   const ChartRow = ({ p, rank }: { p: Player; rank: number }) => {
     const prev = prevRanks[p.id];
     const move = prev !== undefined ? prev - rank : null;
+    const delta = p.score - (roundStartScores[p.id] ?? 0);
     return (
       <div className={'chart-row' + (rank === 1 ? ' lead' : '')}>
         <div className="chart-pos">
@@ -547,6 +560,7 @@ export default function NeedleDrop() {
             {move > 0 ? `▲${move}` : move < 0 ? `▼${Math.abs(move)}` : '='}
           </div>
         )}
+        <div className={'chart-delta ' + (delta > 0 ? 'up' : 'zero')}>+{delta}</div>
         <div className="chart-score">{p.score}</div>
       </div>
     );
@@ -587,8 +601,8 @@ export default function NeedleDrop() {
 
                   <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
                   <div className="row">
-                    {ERAS.map((e, i) => (
-                      <button key={i} className={'chip' + (eraIdx === i ? ' on' : '')} onClick={() => setEraIdx(i)}>{e.label}</button>
+                    {ERA_PRESETS.map((e, i) => (
+                      <button key={i} className={'chip' + (activePreset === i ? ' on' : '')} onClick={() => setRange([e.min, e.max])}>{e.label}</button>
                     ))}
                   </div>
 
@@ -786,7 +800,7 @@ export default function NeedleDrop() {
                     </React.Fragment>
                   ))}
                 </div>
-                <input className="dial" type="range" min={era.min} max={era.max} value={tuner}
+                <input className="dial" type="range" min={rMin} max={rMax} value={tuner}
                   onChange={(e) => onDial(+e.target.value)} />
               </div>
               <div className="nudge-row">
@@ -795,6 +809,14 @@ export default function NeedleDrop() {
                 <button className="btn nd-nudge" onClick={() => nudge(+1)} aria-label="Year plus 1">+</button>
               </div>
               <div className="score-hint">Exact 5 &middot; &plusmn;1 yr 3 &middot; &plusmn;3 yrs 1</div>
+              <div style={{ marginTop: 16, paddingTop: 14, borderTop: '1px solid var(--line)' }}>
+                <div className="eyebrow muted" style={{ marginBottom: 8 }}>This round&apos;s songs</div>
+                {tracks.map((s, i) => (
+                  <div key={i} className="muted hint" style={{ marginBottom: 4 }}>
+                    {s.t} &middot; {s.a}
+                  </div>
+                ))}
+              </div>
             </div>
           </>
         )}
