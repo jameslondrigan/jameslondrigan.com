@@ -29,6 +29,7 @@ const ERA_PRESETS = [
 ];
 
 const MIN_WEEKS = 12;
+const MIN_SPAN = 10; // minimum range width in years (inclusive), so end - start >= 9
 
 const yearPts = (d: number) => (d === 0 ? 5 : d <= 1 ? 3 : d <= 3 ? 1 : 0);
 const shuffle = <T,>(a: T[]): T[] => {
@@ -271,6 +272,8 @@ const CSS = `
 .nd .tl-text{font-size:15px;line-height:1.4}
 .nd .tl-sub{font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--amber);letter-spacing:.1em;display:block;margin-top:3px}
 .nd .score-hint{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-align:center;margin-top:12px}
+.nd select.yr{font-family:'JetBrains Mono',monospace;font-size:15px;background:#160f08;border:1px solid var(--line);border-radius:10px;padding:11px 12px;color:var(--cream);min-height:44px;cursor:pointer;flex:1;min-width:0}
+.nd select.yr:focus{outline:none;border-color:var(--amber)}
 `;
 
 /* ---- 7-bar VU meter (replaces EQ bars) ---- */
@@ -344,6 +347,9 @@ export default function NeedleDrop() {
   const [names, setNames] = useState<string[]>(['', '']);
   const [players, setPlayers] = useState<Player[]>([]);
   const [range, setRange] = useState<[number, number]>([YMIN, YMAX]);
+  const [customActive, setCustomActive] = useState(false);
+  const [lastCustom, setLastCustom] = useState<[number, number] | null>(null);
+  const [spanWarn, setSpanWarn] = useState(false);
   const [tier, setTier] = useState<3 | 5 | 10>(5);
   const [genre, setGenre] = useState<Genre>('Any');
   const [round, setRound] = useState(0);
@@ -451,6 +457,32 @@ export default function NeedleDrop() {
       else setLoadState('failed');
     });
   }
+
+  const pickPreset = (min: number, max: number) => {
+    setRange([min, max]); setCustomActive(false); setSpanWarn(false);
+  };
+  const openCustom = () => {
+    const c = lastCustom ?? range;
+    setRange(c); setLastCustom(c); setCustomActive(true); setSpanWarn(false);
+  };
+  const applyCustom = (a: number, b: number, warn: boolean) => {
+    const pair: [number, number] = [a, b];
+    setRange(pair); setLastCustom(pair); setSpanWarn(warn);
+  };
+  const setCustomStart = (raw: number) => {
+    if (Number.isNaN(raw)) return;
+    const v = Math.min(clampYear(raw), YMAX - (MIN_SPAN - 1));
+    let end = rMax, warn = false;
+    if (end < v + (MIN_SPAN - 1)) { end = v + (MIN_SPAN - 1); warn = true; }
+    applyCustom(v, end, warn);
+  };
+  const setCustomEnd = (raw: number) => {
+    if (Number.isNaN(raw)) return;
+    const v = Math.max(clampYear(raw), YMIN + (MIN_SPAN - 1));
+    let start = rMin, warn = false;
+    if (start > v - (MIN_SPAN - 1)) { start = v - (MIN_SPAN - 1); warn = true; }
+    applyCustom(start, v, warn);
+  };
 
   function start() {
     const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
@@ -602,9 +634,28 @@ export default function NeedleDrop() {
                   <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
                   <div className="row">
                     {ERA_PRESETS.map((e, i) => (
-                      <button key={i} className={'chip' + (activePreset === i ? ' on' : '')} onClick={() => setRange([e.min, e.max])}>{e.label}</button>
+                      <button key={i} className={'chip' + (!customActive && activePreset === i ? ' on' : '')} onClick={() => pickPreset(e.min, e.max)}>{e.label}</button>
                     ))}
+                    <button className={'chip' + (customActive ? ' on' : '')} onClick={openCustom}>Custom</button>
                   </div>
+                  {customActive && (
+                    <div style={{ marginTop: 12 }}>
+                      <div className="row" style={{ alignItems: 'center', gap: 10, flexWrap: 'nowrap' }}>
+                        <select className="yr" value={rMin} onChange={(e) => setCustomStart(+e.target.value)} aria-label="Start year">
+                          {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                        <span className="muted mono" style={{ fontSize: 13 }}>to</span>
+                        <select className="yr" value={rMax} onChange={(e) => setCustomEnd(+e.target.value)} aria-label="End year">
+                          {YEARS.map((y) => <option key={y} value={y}>{y}</option>)}
+                        </select>
+                      </div>
+                      {spanWarn && (
+                        <div className="hint" style={{ color: 'var(--red)', marginTop: 8 }}>
+                          Track Record needs at least a decade to keep the guessing honest.
+                        </div>
+                      )}
+                    </div>
+                  )}
 
                   <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Peak tier</div>
                   <div className="row">
