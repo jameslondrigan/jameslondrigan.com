@@ -34,12 +34,15 @@ const MIN_SPAN = 10; // minimum range width in years (inclusive), so end - start
 /* ---------- localStorage (all access guarded; corrupt/missing -> null) ---------- */
 const K_ROSTER = 'tr:roster:v1';
 const K_SETTINGS = 'tr:settings:v1';
+const K_GAME = 'tr:game:v1';
+const RESUME_MAX_AGE = 24 * 60 * 60 * 1000; // 24h
 const lsGet = <T,>(key: string): T | null => {
   try { const raw = localStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : null; } catch { return null; }
 };
 const lsSet = (key: string, val: unknown) => {
   try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* quota or unavailable: ignore */ }
 };
+const lsRemove = (key: string) => { try { localStorage.removeItem(key); } catch { /* ignore */ } };
 
 const yearPts = (d: number) => (d === 0 ? 5 : d <= 1 ? 3 : d <= 3 ? 1 : 0);
 const shuffle = <T,>(a: T[]): T[] => {
@@ -365,6 +368,35 @@ type Settings = {
   tier: 3 | 5 | 10;
   mode: Mode;
 };
+type Snapshot = {
+  v: 1;
+  ts: number;
+  phase: Phase;
+  players: Player[];
+  round: number;
+  mode: Mode;
+  gmIdx: number;
+  range: [number, number];
+  customActive: boolean;
+  lastCustom: [number, number] | null;
+  genre: Genre;
+  tier: 3 | 5 | 10;
+  tracks: Track[];
+  loadState: 'loading' | 'ready' | 'failed';
+  sIdx: number;
+  target: number | null;
+  revealed: boolean;
+  tSel: string[];
+  aSel: string[];
+  gIdx: number;
+  guesses: Record<string, number>;
+  tuner: number;
+  gmCandidates: SongData[];
+  gmPicked: number[];
+  yRes: { pid: string; name: string; guess: number; pts: number }[];
+  prevRanks: Record<string, number>;
+  roundStartScores: Record<string, number>;
+};
 type Phase = 'setup' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'year' | 'reveal' | 'board' | 'end';
 
 export default function NeedleDrop() {
@@ -401,6 +433,7 @@ export default function NeedleDrop() {
   const [revealYear, setRevealYear] = useState(0);
   const [revealDone, setRevealDone] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
+  const [resumeSnap, setResumeSnap] = useState<Snapshot | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const roundSeq = useRef(0);
@@ -532,6 +565,7 @@ export default function NeedleDrop() {
     const useGm = mode === 'gm' && ps.length >= 3;
     lsSet(K_ROSTER, ps.map((p) => p.name));
     lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode: useGm ? 'gm' : 'classic' } as Settings);
+    setResumeSnap(null);
     setMode(useGm ? 'gm' : 'classic');
     setPlayers(ps); setPrevRanks({});
     setRoundStartScores(Object.fromEntries(ps.map((p) => [p.id, 0])));
@@ -684,6 +718,48 @@ export default function NeedleDrop() {
     } catch { /* corrupt state: keep defaults */ }
   }, []);
 
+  /* Detect a resumable in-progress game on load (guarded; expired/invalid -> cleared). */
+  useEffect(() => {
+    try {
+      const s = lsGet<Snapshot>(K_GAME);
+      if (!s || s.v !== 1 || typeof s.ts !== 'number' || !Array.isArray(s.players) || !s.players.length) { lsRemove(K_GAME); return; }
+      if (Date.now() - s.ts > RESUME_MAX_AGE) { lsRemove(K_GAME); return; }
+      if (s.phase === 'setup' || s.phase === 'end') { lsRemove(K_GAME); return; }
+      setResumeSnap(s);
+    } catch { lsRemove(K_GAME); }
+  }, []);
+
+  /* Persist a snapshot at every meaningful transition; clear it when the game ends. */
+  useEffect(() => {
+    if (phase === 'setup') return;                 // nothing in progress yet
+    if (phase === 'end') { lsRemove(K_GAME); return; } // finished
+    if (loadState === 'loading') return;           // wait until this round's tracks resolve
+    const snap: Snapshot = {
+      v: 1, ts: Date.now(), phase, players, round, mode, gmIdx,
+      range, customActive, lastCustom, genre, tier,
+      tracks, loadState, sIdx, target, revealed,
+      tSel: [...tSel], aSel: [...aSel], gIdx, guesses, tuner,
+      gmCandidates, gmPicked, yRes, prevRanks, roundStartScores,
+    };
+    lsSet(K_GAME, snap);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [phase, players, round, mode, gmIdx, tracks, loadState, sIdx, target, revealed, tSel, aSel, gIdx, guesses, gmCandidates, gmPicked, yRes]);
+
+  const resumeGame = (s: Snapshot) => {
+    setPlayers(s.players); setRound(s.round); setMode(s.mode); setGmIdx(s.gmIdx);
+    setRange(s.range); setCustomActive(s.customActive); setLastCustom(s.lastCustom);
+    setGenre(s.genre); setTier(s.tier);
+    setTracks(s.tracks); setSIdx(s.sIdx); setTarget(s.target); setRevealed(s.revealed);
+    setTSel(new Set(s.tSel)); setASel(new Set(s.aSel));
+    setGIdx(s.gIdx); setGuesses(s.guesses); setTuner(s.tuner);
+    setGmCandidates(s.gmCandidates); setGmPicked(s.gmPicked); setYRes(s.yRes);
+    setPrevRanks(s.prevRanks); setRoundStartScores(s.roundStartScores);
+    setLoadState(s.tracks.length ? 'ready' : s.loadState);
+    setResumeSnap(null);
+    setPhase(s.phase);
+  };
+  const startFresh = () => { lsRemove(K_GAME); setResumeSnap(null); };
+
   const ticks: { y: number; pct: number; dec: boolean }[] = [];
   for (let y = Math.ceil(rMin / 5) * 5; y <= rMax; y += 5) {
     ticks.push({ y, pct: ((y - rMin) / (rMax - rMin)) * 100, dec: y % 10 === 0 });
@@ -725,6 +801,18 @@ export default function NeedleDrop() {
         {/* ===== SETUP ===== */}
         {phase === 'setup' && (
           <>
+            {resumeSnap && (
+              <div className="card" style={{ marginBottom: 16, textAlign: 'center' }}>
+                <div className="eyebrow" style={{ marginBottom: 8 }}>Unfinished game</div>
+                <div className="muted hint" style={{ marginBottom: 14 }}>
+                  Resume your game? Round {resumeSnap.round}, {resumeSnap.players.length} players.
+                </div>
+                <div className="row" style={{ flexWrap: 'nowrap' }}>
+                  <button className="btn primary" style={{ flex: 1 }} onClick={() => resumeGame(resumeSnap)}>Resume ▶</button>
+                  <button className="btn" style={{ flex: 1 }} onClick={startFresh}>Start fresh</button>
+                </div>
+              </div>
+            )}
             <div style={{ textAlign: 'center', marginBottom: 6 }}>
               <div className="eyebrow" style={{ marginBottom: 10 }}>Top chart hits &middot; {YMIN}&ndash;{YMAX}</div>
               <div className="disp" style={{ fontSize: 76 }}>TRACK<br />RECORD</div>
