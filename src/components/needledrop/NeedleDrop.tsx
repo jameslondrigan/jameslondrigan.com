@@ -254,6 +254,11 @@ const CSS = `
 .nd .chart-delta{font-family:'JetBrains Mono',monospace;font-size:13px;font-weight:700;flex-shrink:0;min-width:26px;text-align:right}
 .nd .chart-delta.up{color:var(--green)}
 .nd .chart-delta.zero{color:var(--muted)}
+.nd .chart-gm{font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;letter-spacing:.1em;padding:3px 7px;border-radius:6px;background:var(--maroon);color:var(--cream);flex-shrink:0}
+.nd .pick{display:flex;align-items:center;gap:12px;padding:13px 15px;border-radius:12px;background:var(--panel2);border:1px solid var(--line);margin-bottom:8px;cursor:pointer;text-align:left;width:100%}
+.nd .pick.sel{border-color:var(--amber);background:linear-gradient(180deg,#33260f,var(--panel2))}
+.nd .pick-num{font-family:'Righteous',sans-serif;font-size:18px;width:26px;flex-shrink:0;color:var(--muted)}
+.nd .pick.sel .pick-num{color:var(--amberhi)}
 .nd .chart-score{font-family:'Righteous',sans-serif;font-size:26px;color:var(--amberhi)}
 @media(prefers-reduced-motion:reduce){
   .nd .nd-spinning{animation:none!important}
@@ -340,12 +345,17 @@ const Turntable = ({ playing }: { playing: boolean }) => (
 );
 
 type Player = { id: string; name: string; score: number };
-type Phase = 'setup' | 'song' | 'handoff' | 'year' | 'reveal' | 'board' | 'end';
+type Mode = 'classic' | 'gm';
+type Phase = 'setup' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'year' | 'reveal' | 'board' | 'end';
 
 export default function NeedleDrop() {
   const [phase, setPhase] = useState<Phase>('setup');
   const [names, setNames] = useState<string[]>(['', '']);
   const [players, setPlayers] = useState<Player[]>([]);
+  const [mode, setMode] = useState<Mode>('classic');
+  const [gmIdx, setGmIdx] = useState(0);
+  const [gmCandidates, setGmCandidates] = useState<SongData[]>([]);
+  const [gmPicked, setGmPicked] = useState<number[]>([]);
   const [range, setRange] = useState<[number, number]>([YMIN, YMAX]);
   const [customActive, setCustomActive] = useState(false);
   const [lastCustom, setLastCustom] = useState<[number, number] | null>(null);
@@ -415,6 +425,22 @@ export default function NeedleDrop() {
     return 'Try loosening all filters.';
   }, [poolYears, genre, tier, rMin, rMax]);
   const midYear = Math.round((rMin + rMax) / 2);
+
+  /* GM mode: current host + the players who actually play this round (host excluded) */
+  const gm = mode === 'gm' ? (players[gmIdx] ?? null) : null;
+  const participants = gm ? players.filter((p) => p.id !== gm.id) : players;
+  const poolYearsSorted = useMemo(() => [...poolYears].sort((a, b) => a - b), [poolYears]);
+  const nearestEligible = (v: number) => {
+    if (!poolYearsSorted.length) return v;
+    return poolYearsSorted.reduce((best, y) => (Math.abs(y - v) < Math.abs(best - v) ? y : best), poolYearsSorted[0]);
+  };
+  const stepEligible = (from: number, dir: number) => {
+    if (!poolYearsSorted.length) return from;
+    const i = poolYearsSorted.indexOf(from);
+    if (i === -1) return nearestEligible(from);
+    const j = Math.max(0, Math.min(poolYearsSorted.length - 1, i + dir));
+    return poolYearsSorted[j];
+  };
 
   /* Reveal count-up: accelerating ticks then landing sting */
   useEffect(() => {
@@ -487,9 +513,46 @@ export default function NeedleDrop() {
   function start() {
     const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
     if (ps.length === 0) return;
+    const useGm = mode === 'gm' && ps.length >= 3;
+    setMode(useGm ? 'gm' : 'classic');
     setPlayers(ps); setPrevRanks({});
     setRoundStartScores(Object.fromEntries(ps.map((p) => [p.id, 0])));
-    setRound(1); startRound(); setPhase('song');
+    setGmIdx(0); setRound(1);
+    if (useGm) setPhase('gmHandoff');
+    else { startRound(); setPhase('song'); }
+  }
+
+  /* GM round: host sets the year on a snap-to-eligible dial, then picks 3 songs */
+  const gmBeginSetYear = () => { setTuner(nearestEligible(midYear)); setPhase('gmSetYear'); };
+  const onGmDial = (v: number) => { const s = nearestEligible(v); if (s !== tuner) { tick(); setTuner(s); } };
+  const gmNudge = (dir: number) => { const v = stepEligible(tuner, dir); if (v !== tuner) { tick(); setTuner(v); } };
+  function gmLockYear() {
+    const yr = nearestEligible(tuner);
+    setTarget(yr);
+    const yearPool = pool.filter((s) => s.y === yr);
+    const weighted = [...yearPool].sort((a, b) => ((b.w ?? 0) + Math.random() * 8) - ((a.w ?? 0) + Math.random() * 8));
+    setGmCandidates(weighted.slice(0, 8));
+    setGmPicked([]);
+    setPhase('gmPickSongs');
+  }
+  const gmTogglePick = (i: number) => {
+    setGmPicked((cur) => cur.includes(i) ? cur.filter((x) => x !== i) : (cur.length >= 3 ? cur : [...cur, i]));
+  };
+  function gmConfirmSongs() {
+    const seq = ++roundSeq.current;
+    setLoadState('loading'); setTracks([]);
+    setSIdx(0); setRevealed(false);
+    setTClosed(false); setAClosed(false);
+    setTAwarded(new Set()); setAAwarded(new Set());
+    const chosen = gmPicked.map((i) => gmCandidates[i]);
+    const ordered = [...chosen.filter((s) => s.preview !== null), ...chosen.filter((s) => s.preview === null)];
+    setPhase('song');
+    resolveRound(ordered, 3).then((found) => {
+      if (roundSeq.current !== seq) return;
+      if (found.length >= 3) { setTracks(found.slice(0, 3)); setLoadState('ready'); }
+      else if (found.length > 0) { setTracks(found); setLoadState('ready'); }
+      else setLoadState('failed');
+    });
   }
 
   function stopAudio() { const a = audioRef.current; if (a) a.pause(); setPlaying(false); }
@@ -527,12 +590,12 @@ export default function NeedleDrop() {
   function beginGuess() { setTuner(midYear); setPhase('year'); }
 
   function lockYear() {
-    const p = players[gIdx];
+    const p = participants[gIdx];
     const g = { ...guesses, [p.id]: tuner };
     setGuesses(g);
-    if (gIdx < players.length - 1) { setGIdx((i) => i + 1); setPhase('handoff'); }
+    if (gIdx < participants.length - 1) { setGIdx((i) => i + 1); setPhase('handoff'); }
     else {
-      const res = players.map((pl) => ({
+      const res = participants.map((pl) => ({
         pid: pl.id, name: pl.name, guess: g[pl.id],
         pts: yearPts(Math.abs(g[pl.id] - (target as number))),
       }));
@@ -548,17 +611,24 @@ export default function NeedleDrop() {
     currentSorted.forEach((p, i) => { ranks[p.id] = i + 1; });
     setPrevRanks(ranks);
     setRoundStartScores(Object.fromEntries(players.map((p) => [p.id, p.score])));
-    setRound((r) => r + 1); startRound(); setPhase('song');
+    setRound((r) => r + 1);
+    if (mode === 'gm') { setGmIdx((i) => (i + 1) % players.length); setPhase('gmHandoff'); }
+    else { startRound(); setPhase('song'); }
   };
 
   const playAgain = () => {
     setPrevRanks({});
     setPlayers((ps) => ps.map((p) => ({ ...p, score: 0 })));
     setRoundStartScores(Object.fromEntries(players.map((p) => [p.id, 0])));
-    setRound(1); startRound(); setPhase('song');
+    setGmIdx(0); setRound(1);
+    if (mode === 'gm') setPhase('gmHandoff');
+    else { startRound(); setPhase('song'); }
   };
 
   const sorted = [...players].sort((a, b) => b.score - a.score);
+  const readyCount = names.map((n) => n.trim()).filter(Boolean).length;
+  const gmAvailable = readyCount >= 3;
+  const modeSel: Mode = mode === 'gm' && gmAvailable ? 'gm' : 'classic';
   const song = tracks[sIdx];
   const onDial = (v: number) => { if (v !== tuner) { tick(); setTuner(v); } };
   const nudge = (delta: number) => {
@@ -577,7 +647,7 @@ export default function NeedleDrop() {
     ? (revealDone ? 1 : Math.max(0, (revealYear - (target - 15)) / 15))
     : 0;
 
-  const ChartRow = ({ p, rank }: { p: Player; rank: number }) => {
+  const ChartRow = ({ p, rank, isGm = false }: { p: Player; rank: number; isGm?: boolean }) => {
     const prev = prevRanks[p.id];
     const move = prev !== undefined ? prev - rank : null;
     const delta = p.score - (roundStartScores[p.id] ?? 0);
@@ -587,11 +657,13 @@ export default function NeedleDrop() {
           {rank === 1 ? <span className="chart-pos-1">1</span> : rank}
         </div>
         <div style={{ flex: 1, fontWeight: 600 }}>{p.name}</div>
-        {move !== null && (
+        {isGm ? (
+          <div className="chart-gm">GM</div>
+        ) : move !== null ? (
           <div className={'chart-move ' + (move > 0 ? 'nd-up' : move < 0 ? 'nd-down' : 'nd-hold')}>
             {move > 0 ? `▲${move}` : move < 0 ? `▼${Math.abs(move)}` : '='}
           </div>
-        )}
+        ) : null}
         <div className={'chart-delta ' + (delta > 0 ? 'up' : 'zero')}>+{delta}</div>
         <div className="chart-score">{p.score}</div>
       </div>
@@ -629,6 +701,18 @@ export default function NeedleDrop() {
                   ))}
                   {names.length < 8 && (
                     <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>
+                  )}
+
+                  <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Mode</div>
+                  <div className="row">
+                    <button className={'chip' + (modeSel === 'classic' ? ' on' : '')} onClick={() => setMode('classic')}>Classic</button>
+                    <button className={'chip' + (modeSel === 'gm' ? ' on' : '')} disabled={!gmAvailable} onClick={() => setMode('gm')}>Game Master</button>
+                  </div>
+                  {modeSel === 'gm' && (
+                    <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>One player hosts each round and picks the year and songs. Best with 6 or more.</div>
+                  )}
+                  {!gmAvailable && (
+                    <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Game Master needs at least 3 players.</div>
                   )}
 
                   <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
@@ -720,6 +804,82 @@ export default function NeedleDrop() {
           </>
         )}
 
+        {/* ===== GM HANDOFF ===== */}
+        {phase === 'gmHandoff' && gm && (
+          <div className="card gate">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Round {round} &middot; Game Master</div>
+            <div className="muted">Pass the phone to</div>
+            <div className="disp" style={{ fontSize: 56, margin: '6px 0 18px', color: 'var(--amberhi)' }}>{gm.name}</div>
+            <div className="muted hint" style={{ marginBottom: 22 }}>{gm.name} is the Game Master this round. Pick the year and the songs, then hand the phone back.</div>
+            <button className="btn primary wide" onClick={gmBeginSetYear}>
+              I&apos;m {gm.name}, let&apos;s go ▶
+            </button>
+            <div className="dots" style={{ marginTop: 18 }}>
+              {players.map((p, i) => (
+                <div key={p.id} className={'dot' + (i === gmIdx ? ' on' : '')} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ===== GM SET YEAR ===== */}
+        {phase === 'gmSetYear' && gm && (
+          <>
+            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Set the year</div>
+            <div className="card">
+              <div style={{ textAlign: 'center' }}>
+                <div className="title2" style={{ margin: '2px 0 14px' }}>{gm.name}</div>
+              </div>
+              <div className="yearbig">{tuner}</div>
+              <div className="tuner">
+                <div className="ticks">
+                  {ticks.map((t) => (
+                    <React.Fragment key={t.y}>
+                      <div className={'tick' + (t.dec ? ' dec' : '')} style={{ left: t.pct + '%' }} />
+                      {t.dec && (
+                        <div className="ticklab" style={{ left: t.pct + '%' }}>&apos;{String(t.y).slice(2)}</div>
+                      )}
+                    </React.Fragment>
+                  ))}
+                </div>
+                <input className="dial" type="range" min={rMin} max={rMax} value={tuner}
+                  onChange={(e) => onGmDial(+e.target.value)} />
+              </div>
+              <div className="nudge-row">
+                <button className="btn nd-nudge" onClick={() => gmNudge(-1)} aria-label="Previous eligible year">&minus;</button>
+                <button className="btn primary" style={{ flex: 1 }} onClick={gmLockYear}>Pick songs ▶</button>
+                <button className="btn nd-nudge" onClick={() => gmNudge(1)} aria-label="Next eligible year">+</button>
+              </div>
+              <div className="score-hint">The dial snaps to years with enough songs</div>
+            </div>
+          </>
+        )}
+
+        {/* ===== GM PICK SONGS ===== */}
+        {phase === 'gmPickSongs' && gm && (
+          <>
+            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Pick 3 songs</div>
+            <div className="card">
+              <div className="muted hint" style={{ marginBottom: 14 }}>
+                Year {target}. Choose exactly three. ({gmPicked.length}/3)
+              </div>
+              {gmCandidates.map((s, i) => {
+                const sel = gmPicked.includes(i);
+                return (
+                  <button key={i} className={'pick' + (sel ? ' sel' : '')} onClick={() => gmTogglePick(i)}
+                    disabled={!sel && gmPicked.length >= 3}>
+                    <span className="pick-num">{sel ? gmPicked.indexOf(i) + 1 : '+'}</span>
+                    <span><span style={{ fontWeight: 600 }}>{s.t}</span> <span className="muted">&middot; {s.a}</span></span>
+                  </button>
+                );
+              })}
+              <button className="btn primary wide" style={{ marginTop: 14 }} disabled={gmPicked.length !== 3} onClick={gmConfirmSongs}>
+                Confirm songs ▶
+              </button>
+            </div>
+          </>
+        )}
+
         {/* ===== SONG ===== */}
         {phase === 'song' && (
           <>
@@ -742,7 +902,7 @@ export default function NeedleDrop() {
               {loadState === 'failed' && (
                 <>
                   <div className="muted" style={{ marginBottom: 14 }}>Couldn&apos;t tune in that year. Likely a network hiccup.</div>
-                  <button className="btn primary" onClick={startRound}>Spin again &#8635;</button>
+                  <button className="btn primary" onClick={mode === 'gm' ? gmConfirmSongs : startRound}>Spin again &#8635;</button>
                 </>
               )}
               {loadState === 'ready' && song && (
@@ -769,7 +929,7 @@ export default function NeedleDrop() {
                       <div className="muted hint" style={{ marginTop: 18, textAlign: 'center' }}>Tap who called it</div>
                       <div className="eyebrow" style={{ margin: '6px 0 8px' }}>Who named the song? +1</div>
                       <div className="row">
-                        {players.map((p) => (
+                        {participants.map((p) => (
                           <button key={p.id} className="btn sm" disabled={tClosed || tAwarded.has(p.id)}
                             onClick={() => awardPlayer(p.id, 't')}>
                             {tAwarded.has(p.id) ? '✓ ' + p.name : p.name}
@@ -785,7 +945,7 @@ export default function NeedleDrop() {
 
                       <div className="eyebrow" style={{ margin: '16px 0 8px' }}>Who named the artist? +1</div>
                       <div className="row">
-                        {players.map((p) => (
+                        {participants.map((p) => (
                           <button key={p.id} className="btn sm" disabled={aClosed || aAwarded.has(p.id)}
                             onClick={() => awardPlayer(p.id, 'a')}>
                             {aAwarded.has(p.id) ? '✓ ' + p.name : p.name}
@@ -817,14 +977,14 @@ export default function NeedleDrop() {
             <div className="eyebrow" style={{ marginBottom: 14 }}>Round {round} &middot; Year guess</div>
             <div className="muted">Pass the phone to</div>
             <div className="disp" style={{ fontSize: 56, margin: '6px 0 18px', color: 'var(--amberhi)' }}>
-              {players[gIdx].name}
+              {participants[gIdx].name}
             </div>
             <div className="muted hint" style={{ marginBottom: 22 }}>Everyone else, eyes up. Guesses stay secret.</div>
             <button className="btn primary wide" onClick={beginGuess}>
-              I&apos;m {players[gIdx].name}, show the dial ▶
+              I&apos;m {participants[gIdx].name}, show the dial ▶
             </button>
             <div className="dots" style={{ marginTop: 18 }}>
-              {players.map((p, i) => (
+              {participants.map((p, i) => (
                 <div key={p.id} className={'dot' + (i === gIdx ? ' on' : i < gIdx ? ' done' : '')} />
               ))}
             </div>
@@ -837,7 +997,7 @@ export default function NeedleDrop() {
             <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Tune in the year</div>
             <div className="card">
               <div style={{ textAlign: 'center' }}>
-                <div className="title2" style={{ margin: '2px 0 14px' }}>{players[gIdx].name}</div>
+                <div className="title2" style={{ margin: '2px 0 14px' }}>{participants[gIdx].name}</div>
               </div>
               <div className="yearbig">{tuner}</div>
               <div className="tuner">
@@ -916,7 +1076,10 @@ export default function NeedleDrop() {
           <>
             <div className="eyebrow" style={{ marginBottom: 16 }}>After round {round}</div>
             <div className="card">
-              {sorted.map((p, i) => <ChartRow key={p.id} p={p} rank={i + 1} />)}
+              {sorted.map((p, i) => <ChartRow key={p.id} p={p} rank={i + 1} isGm={!!gm && p.id === gm.id} />)}
+              {mode === 'gm' && players.length > 0 && round % players.length === 0 && (
+                <div className="muted hint" style={{ textAlign: 'center', marginTop: 10 }}>Everyone has hosted</div>
+              )}
               <button className="btn primary wide" style={{ marginTop: 14 }} onClick={nextRound}>Next round ▶</button>
               <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setPhase('end')}>End game</button>
             </div>
