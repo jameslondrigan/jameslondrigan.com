@@ -31,6 +31,16 @@ const ERA_PRESETS = [
 const MIN_WEEKS = 12;
 const MIN_SPAN = 10; // minimum range width in years (inclusive), so end - start >= 9
 
+/* ---------- localStorage (all access guarded; corrupt/missing -> null) ---------- */
+const K_ROSTER = 'tr:roster:v1';
+const K_SETTINGS = 'tr:settings:v1';
+const lsGet = <T,>(key: string): T | null => {
+  try { const raw = localStorage.getItem(key); return raw ? (JSON.parse(raw) as T) : null; } catch { return null; }
+};
+const lsSet = (key: string, val: unknown) => {
+  try { localStorage.setItem(key, JSON.stringify(val)); } catch { /* quota or unavailable: ignore */ }
+};
+
 const yearPts = (d: number) => (d === 0 ? 5 : d <= 1 ? 3 : d <= 3 ? 1 : 0);
 const shuffle = <T,>(a: T[]): T[] => {
   const r = [...a];
@@ -347,6 +357,14 @@ const Turntable = ({ playing }: { playing: boolean }) => (
 
 type Player = { id: string; name: string; score: number };
 type Mode = 'classic' | 'gm';
+type Settings = {
+  range: [number, number];
+  customActive: boolean;
+  lastCustom: [number, number] | null;
+  genre: Genre;
+  tier: 3 | 5 | 10;
+  mode: Mode;
+};
 type Phase = 'setup' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'year' | 'reveal' | 'board' | 'end';
 
 export default function NeedleDrop() {
@@ -512,6 +530,8 @@ export default function NeedleDrop() {
     const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
     if (ps.length === 0) return;
     const useGm = mode === 'gm' && ps.length >= 3;
+    lsSet(K_ROSTER, ps.map((p) => p.name));
+    lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode: useGm ? 'gm' : 'classic' } as Settings);
     setMode(useGm ? 'gm' : 'classic');
     setPlayers(ps); setPrevRanks({});
     setRoundStartScores(Object.fromEntries(ps.map((p) => [p.id, 0])));
@@ -638,6 +658,31 @@ export default function NeedleDrop() {
   };
 
   useEffect(() => () => stopAudio(), []);
+
+  /* Restore last roster + settings as setup defaults (all reads guarded). */
+  useEffect(() => {
+    try {
+      const roster = lsGet<unknown>(K_ROSTER);
+      if (Array.isArray(roster)) {
+        const cleaned = roster.filter((n): n is string => typeof n === 'string' && n.trim().length > 0).slice(0, 8);
+        if (cleaned.length) setNames(cleaned);
+      }
+      const st = lsGet<Partial<Settings>>(K_SETTINGS);
+      if (st && typeof st === 'object') {
+        if (Array.isArray(st.range) && st.range.length === 2 && st.range.every((n) => typeof n === 'number')) {
+          const lo = clampYear(st.range[0]), hi = clampYear(st.range[1]);
+          if (lo < hi) setRange([lo, hi]);
+        }
+        if (typeof st.customActive === 'boolean') setCustomActive(st.customActive);
+        if (Array.isArray(st.lastCustom) && st.lastCustom.length === 2 && st.lastCustom.every((n) => typeof n === 'number')) {
+          setLastCustom([clampYear(st.lastCustom[0]), clampYear(st.lastCustom[1])]);
+        }
+        if (typeof st.genre === 'string' && (GENRES as readonly string[]).includes(st.genre)) setGenre(st.genre as Genre);
+        if (st.tier === 3 || st.tier === 5 || st.tier === 10) setTier(st.tier);
+        if (st.mode === 'classic' || st.mode === 'gm') setMode(st.mode);
+      }
+    } catch { /* corrupt state: keep defaults */ }
+  }, []);
 
   const ticks: { y: number; pct: number; dec: boolean }[] = [];
   for (let y = Math.ceil(rMin / 5) * 5; y <= rMax; y += 5) {
