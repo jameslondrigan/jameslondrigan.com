@@ -1,32 +1,52 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import SONGS_DATA from '../../data/needledrop-songs.json';
 
 /*
  * Track Record: music year-guessing party game
  * Enriched data: songs with baked preview URLs play instantly.
+ * Song data is served as a static file (/data/tr-songs.json) and fetched at
+ * mount, then cached in module scope so navigation never refetches.
  * JSONP live-resolution (iTunes API) is the fallback for unenriched songs.
  */
 
 type SongData = { y: number; t: string; a: string; p: number; w?: number; preview: string | null; art: string | null; g: string };
 type Track = SongData & { preview: string };
 
-const SONGS = SONGS_DATA as SongData[];
-
 const GENRES = ['Any', 'Rock', 'Pop', 'Country', 'Hip-Hop/R&B', 'Dance/Electronic', 'Other'] as const;
 type Genre = typeof GENRES[number];
 
-const YEARS = [...new Set(SONGS.map((s) => s.y))].sort((a, b) => a - b);
-const YMIN = YEARS[0], YMAX = YEARS[YEARS.length - 1];
+/* Song data + everything derived from it. Populated once the static JSON loads;
+ * the game body only renders after that, so these are always ready by first use. */
+const SONGS_URL = '/data/tr-songs.json';
+let SONGS: SongData[] = [];
+let YEARS: number[] = [];
+let YMIN = 0, YMAX = 0;
+type EraPreset = { label: string; min: number; max: number };
+let ERA_PRESETS: EraPreset[] = [];
 
 const clampYear = (y: number) => Math.max(YMIN, Math.min(YMAX, y));
-const preset = (label: string, min: number, max: number) => ({ label, min: clampYear(min), max: clampYear(max) });
-const ERA_PRESETS = [
-  preset('Everything', YMIN, YMAX),
-  preset("'50s–'60s", 1958, 1969),
-  preset("'70s–'80s", 1970, 1989),
-  preset("'90s–'00s", 1990, 2009),
-  preset("'10s+", 2010, YMAX),
-];
+const preset = (label: string, min: number, max: number): EraPreset => ({ label, min: clampYear(min), max: clampYear(max) });
+function initDerived() {
+  YEARS = [...new Set(SONGS.map((s) => s.y))].sort((a, b) => a - b);
+  YMIN = YEARS[0]; YMAX = YEARS[YEARS.length - 1];
+  ERA_PRESETS = [
+    preset('Everything', YMIN, YMAX),
+    preset("'50s–'60s", 1958, 1969),
+    preset("'70s–'80s", 1970, 1989),
+    preset("'90s–'00s", 1990, 2009),
+    preset("'10s+", 2010, YMAX),
+  ];
+}
+
+let songsPromise: Promise<void> | null = null;
+function loadSongs(): Promise<void> {
+  if (SONGS.length) return Promise.resolve();
+  if (songsPromise) return songsPromise;
+  songsPromise = fetch(SONGS_URL)
+    .then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then((d) => { if (!Array.isArray(d) || !d.length) throw new Error('empty'); SONGS = d as SongData[]; initDerived(); })
+    .catch((e) => { songsPromise = null; throw e; });
+  return songsPromise;
+}
 
 const MIN_WEEKS = 12;
 const MIN_SPAN = 10; // minimum range width in years (inclusive), so end - start >= 9
@@ -401,7 +421,7 @@ type Snapshot = {
 };
 type Phase = 'setup' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'year' | 'reveal' | 'board' | 'end';
 
-export default function NeedleDrop() {
+function Game() {
   const [phase, setPhase] = useState<Phase>('setup');
   const [names, setNames] = useState<string[]>(['', '']);
   const [players, setPlayers] = useState<Player[]>([]);
@@ -1244,6 +1264,52 @@ export default function NeedleDrop() {
           </>
         )}
 
+      </div>
+    </div>
+  );
+}
+
+/* Data gate: fetch the static song JSON before the game renders. Cached in
+ * module scope, so re-mounting within the session never refetches. */
+export default function NeedleDrop() {
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>(SONGS.length ? 'ready' : 'loading');
+
+  useEffect(() => {
+    if (SONGS.length) { setState('ready'); return; }
+    let alive = true;
+    loadSongs().then(() => { if (alive) setState('ready'); }).catch(() => { if (alive) setState('error'); });
+    return () => { alive = false; };
+  }, []);
+
+  const retry = () => {
+    setState('loading');
+    loadSongs().then(() => setState('ready')).catch(() => setState('error'));
+  };
+
+  if (state === 'ready') return <Game />;
+
+  return (
+    <div className="nd">
+      <style>{CSS}</style>
+      <div className="wrap">
+        <div style={{ textAlign: 'center', marginBottom: 6 }}>
+          <div className="disp" style={{ fontSize: 76 }}>TRACK<br />RECORD</div>
+        </div>
+        <div className="card gate" style={{ marginTop: 20 }}>
+          {state === 'loading' ? (
+            <>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+                <VuMeter active={true} />
+              </div>
+              <div className="muted">Pulling records from the crate&hellip;</div>
+            </>
+          ) : (
+            <>
+              <div className="muted" style={{ marginBottom: 14 }}>Couldn&apos;t load the songs. Check your connection.</div>
+              <button className="btn primary" onClick={retry}>Try again &#8635;</button>
+            </>
+          )}
+        </div>
       </div>
     </div>
   );
