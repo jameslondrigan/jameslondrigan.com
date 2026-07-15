@@ -50,6 +50,7 @@ function loadSongs(): Promise<void> {
 
 const MIN_WEEKS = 12;
 const MIN_SPAN = 10; // minimum range width in years (inclusive), so end - start >= 9
+const FADE_MS = 280; // clip fade in/out duration
 
 /* ---------- localStorage (all access guarded; corrupt/missing -> null) ---------- */
 const K_ROSTER = 'tr:roster:v1';
@@ -459,6 +460,10 @@ function Game() {
   const [resumeSnap, setResumeSnap] = useState<Snapshot | null>(null);
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
+  const srcNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
+  const gainRef = useRef<GainNode | null>(null);
+  const fadeTimerRef = useRef<number | null>(null);
+  const rafRef = useRef<number | null>(null);
   const roundSeq = useRef(0);
   const [playing, setPlaying] = useState(false);
   const tick = useTick();
@@ -632,16 +637,73 @@ function Game() {
     });
   }
 
-  function stopAudio() { const a = audioRef.current; if (a) a.pause(); setPlaying(false); }
+  /* Route the audio element through a GainNode so we can fade (Apple's CDN
+   * sends Access-Control-Allow-Origin, so crossorigin routing does not taint).
+   * If createMediaElementSource ever throws, fall back to an element.volume ramp. */
+  function ensureGraph(): GainNode | null {
+    if (gainRef.current) return gainRef.current;
+    const ctx = getAC(); const a = audioRef.current;
+    if (!ctx || !a) return null;
+    try {
+      const src = ctx.createMediaElementSource(a);
+      const g = ctx.createGain();
+      g.gain.value = 1;
+      src.connect(g); g.connect(ctx.destination);
+      srcNodeRef.current = src; gainRef.current = g;
+      return g;
+    } catch { return null; }
+  }
+  function clearFadeTimers() {
+    if (fadeTimerRef.current != null) { clearTimeout(fadeTimerRef.current); fadeTimerRef.current = null; }
+    if (rafRef.current != null) { cancelAnimationFrame(rafRef.current); rafRef.current = null; }
+  }
+  function fadeTo(target: number, ms: number, then?: () => void) {
+    clearFadeTimers();
+    const g = gainRef.current; const a = audioRef.current;
+    if (g) {
+      const ctx = getAC();
+      if (ctx) {
+        const now = ctx.currentTime;
+        g.gain.cancelScheduledValues(now);
+        g.gain.setValueAtTime(Math.max(0.0001, g.gain.value), now);
+        g.gain.linearRampToValueAtTime(Math.max(0.0001, target), now + ms / 1000);
+      }
+    } else if (a) {
+      const start = a.volume, t0 = performance.now();
+      const stepFn = (now: number) => {
+        const k = Math.min(1, (now - t0) / ms);
+        try { a.volume = start + (target - start) * k; } catch { /* iOS: volume is read-only */ }
+        if (k < 1) rafRef.current = requestAnimationFrame(stepFn); else rafRef.current = null;
+      };
+      rafRef.current = requestAnimationFrame(stepFn);
+    }
+    if (then) fadeTimerRef.current = window.setTimeout(then, ms + 20);
+  }
 
+  function stopAudio() {
+    clearFadeTimers();
+    const a = audioRef.current; if (a) a.pause();
+    if (gainRef.current) { try { gainRef.current.gain.value = 1; } catch { /* ignore */ } }
+    setPlaying(false);
+  }
+  function pauseWithFade() {
+    const a = audioRef.current; if (!a) return;
+    setPlaying(false);
+    fadeTo(0, FADE_MS, () => { const aa = audioRef.current; if (aa) aa.pause(); });
+  }
   async function togglePlay(t: Track) {
     const a = audioRef.current; if (!a) return;
-    if (playing) { a.pause(); setPlaying(false); return; }
+    if (playing) { pauseWithFade(); return; }
+    if (!a.src || !a.src.includes(t.preview)) { a.src = t.preview; a.currentTime = 0; }
+    const g = ensureGraph();
+    const ctx = getAC();
+    if (g && ctx) { g.gain.cancelScheduledValues(ctx.currentTime); g.gain.setValueAtTime(0.0001, ctx.currentTime); }
+    else { try { a.volume = 0; } catch { /* iOS */ } }
     try {
-      if (!a.src || !a.src.includes(t.preview)) { a.src = t.preview; a.currentTime = 0; }
       await a.play();
       setPlaying(true);
       playTonearmClick();
+      fadeTo(1, FADE_MS);
     } catch { setPlaying(false); }
   }
 
@@ -660,7 +722,7 @@ function Game() {
   };
 
   function nextSong() {
-    stopAudio();
+    pauseWithFade();
     applySongScores();
     if (sIdx < tracks.length - 1) {
       setSIdx((i) => i + 1); setRevealed(false);
@@ -822,7 +884,7 @@ function Game() {
   return (
     <div className="nd">
       <style>{CSS}</style>
-      <audio ref={audioRef} onEnded={() => setPlaying(false)} />
+      <audio ref={audioRef} crossOrigin="anonymous" onEnded={() => setPlaying(false)} />
       <div className="wrap">
 
         {/* ===== SETUP ===== */}
