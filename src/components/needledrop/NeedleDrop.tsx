@@ -200,6 +200,7 @@ const CSS = `
 .nd .btn.primary{background:linear-gradient(180deg,var(--amberhi),var(--amber));color:#2a1a06;border:none;box-shadow:0 6px 24px -8px var(--amber)}
 .nd .btn.wide{width:100%}
 .nd .btn.sm{font-size:13px;padding:10px 14px;border-radius:10px}
+.nd .btn.sm.sel{border-color:var(--amber);background:linear-gradient(180deg,#3a2c12,var(--panel2));color:var(--cream)}
 .nd .chip{font-family:'JetBrains Mono',monospace;font-size:12px;letter-spacing:.12em;text-transform:uppercase;padding:9px 13px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer;min-height:38px}
 .nd .chip.on{color:#2a1a06;background:var(--amber);border-color:var(--amber);font-weight:700}
 .nd .row{display:flex;gap:8px;flex-wrap:wrap}
@@ -369,10 +370,8 @@ export default function NeedleDrop() {
   const [target, setTarget] = useState<number | null>(null);
   const [sIdx, setSIdx] = useState(0);
   const [revealed, setRevealed] = useState(false);
-  const [tClosed, setTClosed] = useState(false);
-  const [aClosed, setAClosed] = useState(false);
-  const [tAwarded, setTAwarded] = useState(new Set<string>());
-  const [aAwarded, setAAwarded] = useState(new Set<string>());
+  const [tSel, setTSel] = useState(new Set<string>());
+  const [aSel, setASel] = useState(new Set<string>());
 
   const [gIdx, setGIdx] = useState(0);
   const [tuner, setTuner] = useState(YMIN);
@@ -469,8 +468,7 @@ export default function NeedleDrop() {
     const seq = ++roundSeq.current;
     setLoadState('loading'); setTracks([]);
     setSIdx(0); setRevealed(false);
-    setTClosed(false); setAClosed(false);
-    setTAwarded(new Set()); setAAwarded(new Set());
+    setTSel(new Set()); setASel(new Set());
     const yr = poolYears[Math.floor(Math.random() * poolYears.length)];
     setTarget(yr);
     const yearPool = pool.filter((s) => s.y === yr);
@@ -542,8 +540,7 @@ export default function NeedleDrop() {
     const seq = ++roundSeq.current;
     setLoadState('loading'); setTracks([]);
     setSIdx(0); setRevealed(false);
-    setTClosed(false); setAClosed(false);
-    setTAwarded(new Set()); setAAwarded(new Set());
+    setTSel(new Set()); setASel(new Set());
     const chosen = gmPicked.map((i) => gmCandidates[i]);
     const ordered = [...chosen.filter((s) => s.preview !== null), ...chosen.filter((s) => s.preview === null)];
     setPhase('song');
@@ -568,22 +565,26 @@ export default function NeedleDrop() {
     } catch { setPlaying(false); }
   }
 
-  const awardPlayer = (pid: string, kind: 't' | 'a') => {
-    setPlayers((ps) => ps.map((p) => p.id === pid ? { ...p, score: p.score + 1 } : p));
-    if (kind === 't') setTAwarded((s) => new Set([...s, pid]));
-    else setAAwarded((s) => new Set([...s, pid]));
+  /* Award selection is pure UI state; no score mutation happens on tap. */
+  const toggleSel = (pid: string, kind: 't' | 'a') => {
+    const upd = (s: Set<string>) => { const n = new Set(s); n.has(pid) ? n.delete(pid) : n.add(pid); return n; };
+    if (kind === 't') setTSel(upd); else setASel(upd);
   };
 
-  const closeCategory = (kind: 't' | 'a') => {
-    if (kind === 't') setTClosed(true); else setAClosed(true);
+  /* Points for the current song are computed once, from the final selections. */
+  const applySongScores = () => {
+    setPlayers((ps) => ps.map((p) => {
+      const add = (tSel.has(p.id) ? 1 : 0) + (aSel.has(p.id) ? 1 : 0);
+      return add ? { ...p, score: p.score + add } : p;
+    }));
   };
 
   function nextSong() {
     stopAudio();
+    applySongScores();
     if (sIdx < tracks.length - 1) {
       setSIdx((i) => i + 1); setRevealed(false);
-      setTClosed(false); setAClosed(false);
-      setTAwarded(new Set()); setAAwarded(new Set());
+      setTSel(new Set()); setASel(new Set());
     } else { setGIdx(0); setGuesses({}); setPhase('handoff'); }
   }
 
@@ -926,41 +927,28 @@ export default function NeedleDrop() {
                         <div className="muted hint mono" style={{ marginTop: 4 }}>hit #{song.p}</div>
                       </div>
 
-                      <div className="muted hint" style={{ marginTop: 18, textAlign: 'center' }}>Tap who called it</div>
+                      <div className="muted hint" style={{ marginTop: 18, textAlign: 'center' }}>Tap everyone who called it</div>
                       <div className="eyebrow" style={{ margin: '6px 0 8px' }}>Who named the song? +1</div>
                       <div className="row">
                         {participants.map((p) => (
-                          <button key={p.id} className="btn sm" disabled={tClosed || tAwarded.has(p.id)}
-                            onClick={() => awardPlayer(p.id, 't')}>
-                            {tAwarded.has(p.id) ? '✓ ' + p.name : p.name}
+                          <button key={p.id} className={'btn sm' + (tSel.has(p.id) ? ' sel' : '')}
+                            onClick={() => toggleSel(p.id, 't')}>
+                            {tSel.has(p.id) ? '✓ ' + p.name : p.name}
                           </button>
                         ))}
-                        {tAwarded.size === 0 && (
-                          <button className="btn sm" disabled={tClosed} onClick={() => closeCategory('t')}>Nobody</button>
-                        )}
-                        {tAwarded.size > 0 && !tClosed && (
-                          <button className="btn sm" onClick={() => closeCategory('t')}>Done</button>
-                        )}
                       </div>
 
                       <div className="eyebrow" style={{ margin: '16px 0 8px' }}>Who named the artist? +1</div>
                       <div className="row">
                         {participants.map((p) => (
-                          <button key={p.id} className="btn sm" disabled={aClosed || aAwarded.has(p.id)}
-                            onClick={() => awardPlayer(p.id, 'a')}>
-                            {aAwarded.has(p.id) ? '✓ ' + p.name : p.name}
+                          <button key={p.id} className={'btn sm' + (aSel.has(p.id) ? ' sel' : '')}
+                            onClick={() => toggleSel(p.id, 'a')}>
+                            {aSel.has(p.id) ? '✓ ' + p.name : p.name}
                           </button>
                         ))}
-                        {aAwarded.size === 0 && (
-                          <button className="btn sm" disabled={aClosed} onClick={() => closeCategory('a')}>Nobody</button>
-                        )}
-                        {aAwarded.size > 0 && !aClosed && (
-                          <button className="btn sm" onClick={() => closeCategory('a')}>Done</button>
-                        )}
                       </div>
 
-                      <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!(tClosed && aClosed)}
-                        onClick={nextSong}>
+                      <button className="btn primary wide" style={{ marginTop: 22 }} onClick={nextSong}>
                         {sIdx < tracks.length - 1 ? 'Next song ▶' : 'Tune in the year ▶'}
                       </button>
                     </div>
