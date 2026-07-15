@@ -367,6 +367,7 @@ type Settings = {
   genre: Genre;
   tier: 3 | 5 | 10;
   mode: Mode;
+  songsPer: 3 | 5 | 10;
 };
 type Snapshot = {
   v: 1;
@@ -381,6 +382,7 @@ type Snapshot = {
   lastCustom: [number, number] | null;
   genre: Genre;
   tier: 3 | 5 | 10;
+  songsPer: 3 | 5 | 10;
   tracks: Track[];
   loadState: 'loading' | 'ready' | 'failed';
   sIdx: number;
@@ -413,6 +415,7 @@ export default function NeedleDrop() {
   const [spanWarn, setSpanWarn] = useState(false);
   const [tier, setTier] = useState<3 | 5 | 10>(5);
   const [genre, setGenre] = useState<Genre>('Any');
+  const [songsPer, setSongsPer] = useState<3 | 5 | 10>(3);
   const [round, setRound] = useState(0);
 
   const [tracks, setTracks] = useState<Track[]>([]);
@@ -451,29 +454,32 @@ export default function NeedleDrop() {
   const poolYears = useMemo(() => {
     const m: Record<number, number> = {};
     pool.forEach((s) => { m[s.y] = (m[s.y] || 0) + 1; });
-    return Object.keys(m).map(Number).filter((y) => m[y] >= 3);
-  }, [pool]);
+    return Object.keys(m).map(Number).filter((y) => m[y] >= songsPer);
+  }, [pool, songsPer]);
   const emptySuggestion = useMemo((): string | null => {
     if (poolYears.length > 0) return null;
-    const playable = (songs: SongData[]) => {
+    const playable = (songs: SongData[], need: number) => {
       const m: Record<number, number> = {};
       songs.forEach((s) => { m[s.y] = (m[s.y] || 0) + 1; });
-      return Object.values(m).some((n) => n >= 3);
+      return Object.values(m).some((n) => n >= need);
     };
+    if (songsPer > 3 && playable(pool, 3)) {
+      return `Try 3 songs per round instead of ${songsPer}.`;
+    }
     if (genre !== 'Any') {
-      if (playable(SONGS.filter((s) => s.y >= rMin && s.y <= rMax && s.p <= tier && (s.w ?? 0) >= MIN_WEEKS)))
+      if (playable(SONGS.filter((s) => s.y >= rMin && s.y <= rMax && s.p <= tier && (s.w ?? 0) >= MIN_WEEKS), songsPer))
         return `Try Any genre instead of ${genre}.`;
     }
     if (tier !== 10) {
-      if (playable(SONGS.filter((s) => s.y >= rMin && s.y <= rMax && s.p <= 10 && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
+      if (playable(SONGS.filter((s) => s.y >= rMin && s.y <= rMax && s.p <= 10 && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS), songsPer))
         return `Try Top 10 instead of Top ${tier}.`;
     }
     if (rMin !== YMIN || rMax !== YMAX) {
-      if (playable(SONGS.filter((s) => s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS)))
+      if (playable(SONGS.filter((s) => s.p <= tier && (genre === 'Any' || s.g === genre) && (s.w ?? 0) >= MIN_WEEKS), songsPer))
         return 'Try Everything instead of this range.';
     }
     return 'Try loosening all filters.';
-  }, [poolYears, genre, tier, rMin, rMax]);
+  }, [poolYears, genre, tier, rMin, rMax, songsPer, pool]);
   const midYear = Math.round((rMin + rMax) / 2);
 
   /* GM mode: current host + the players who actually play this round (host excluded) */
@@ -525,9 +531,9 @@ export default function NeedleDrop() {
     const yearPool = pool.filter((s) => s.y === yr);
     const weighted = [...yearPool].sort((a, b) => ((b.w ?? 0) + Math.random() * 8) - ((a.w ?? 0) + Math.random() * 8));
     const candidates = [...weighted.filter((s) => s.preview !== null), ...weighted.filter((s) => s.preview === null)];
-    resolveRound(candidates, 3).then((found) => {
+    resolveRound(candidates, songsPer).then((found) => {
       if (roundSeq.current !== seq) return;
-      if (found.length >= 3) { setTracks(found.slice(0, 3)); setLoadState('ready'); }
+      if (found.length >= songsPer) { setTracks(found.slice(0, songsPer)); setLoadState('ready'); }
       else if (found.length > 0) { setTracks(found); setLoadState('ready'); }
       else setLoadState('failed');
     });
@@ -564,7 +570,7 @@ export default function NeedleDrop() {
     if (ps.length === 0) return;
     const useGm = mode === 'gm' && ps.length >= 3;
     lsSet(K_ROSTER, ps.map((p) => p.name));
-    lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode: useGm ? 'gm' : 'classic' } as Settings);
+    lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode: useGm ? 'gm' : 'classic', songsPer } as Settings);
     setResumeSnap(null);
     setMode(useGm ? 'gm' : 'classic');
     setPlayers(ps); setPrevRanks({});
@@ -583,12 +589,12 @@ export default function NeedleDrop() {
     setTarget(yr);
     const yearPool = pool.filter((s) => s.y === yr);
     const weighted = [...yearPool].sort((a, b) => ((b.w ?? 0) + Math.random() * 8) - ((a.w ?? 0) + Math.random() * 8));
-    setGmCandidates(weighted.slice(0, 8));
+    setGmCandidates(weighted.slice(0, songsPer + 5));
     setGmPicked([]);
     setPhase('gmPickSongs');
   }
   const gmTogglePick = (i: number) => {
-    setGmPicked((cur) => cur.includes(i) ? cur.filter((x) => x !== i) : (cur.length >= 3 ? cur : [...cur, i]));
+    setGmPicked((cur) => cur.includes(i) ? cur.filter((x) => x !== i) : (cur.length >= songsPer ? cur : [...cur, i]));
   };
   function gmConfirmSongs() {
     const seq = ++roundSeq.current;
@@ -598,9 +604,9 @@ export default function NeedleDrop() {
     const chosen = gmPicked.map((i) => gmCandidates[i]);
     const ordered = [...chosen.filter((s) => s.preview !== null), ...chosen.filter((s) => s.preview === null)];
     setPhase('song');
-    resolveRound(ordered, 3).then((found) => {
+    resolveRound(ordered, songsPer).then((found) => {
       if (roundSeq.current !== seq) return;
-      if (found.length >= 3) { setTracks(found.slice(0, 3)); setLoadState('ready'); }
+      if (found.length >= songsPer) { setTracks(found.slice(0, songsPer)); setLoadState('ready'); }
       else if (found.length > 0) { setTracks(found); setLoadState('ready'); }
       else setLoadState('failed');
     });
@@ -714,6 +720,7 @@ export default function NeedleDrop() {
         if (typeof st.genre === 'string' && (GENRES as readonly string[]).includes(st.genre)) setGenre(st.genre as Genre);
         if (st.tier === 3 || st.tier === 5 || st.tier === 10) setTier(st.tier);
         if (st.mode === 'classic' || st.mode === 'gm') setMode(st.mode);
+        if (st.songsPer === 3 || st.songsPer === 5 || st.songsPer === 10) setSongsPer(st.songsPer);
       }
     } catch { /* corrupt state: keep defaults */ }
   }, []);
@@ -736,7 +743,7 @@ export default function NeedleDrop() {
     if (loadState === 'loading') return;           // wait until this round's tracks resolve
     const snap: Snapshot = {
       v: 1, ts: Date.now(), phase, players, round, mode, gmIdx,
-      range, customActive, lastCustom, genre, tier,
+      range, customActive, lastCustom, genre, tier, songsPer,
       tracks, loadState, sIdx, target, revealed,
       tSel: [...tSel], aSel: [...aSel], gIdx, guesses, tuner,
       gmCandidates, gmPicked, yRes, prevRanks, roundStartScores,
@@ -748,7 +755,7 @@ export default function NeedleDrop() {
   const resumeGame = (s: Snapshot) => {
     setPlayers(s.players); setRound(s.round); setMode(s.mode); setGmIdx(s.gmIdx);
     setRange(s.range); setCustomActive(s.customActive); setLastCustom(s.lastCustom);
-    setGenre(s.genre); setTier(s.tier);
+    setGenre(s.genre); setTier(s.tier); setSongsPer(s.songsPer ?? 3);
     setTracks(s.tracks); setSIdx(s.sIdx); setTarget(s.target); setRevealed(s.revealed);
     setTSel(new Set(s.tSel)); setASel(new Set(s.aSel));
     setGIdx(s.gIdx); setGuesses(s.guesses); setTuner(s.tuner);
@@ -892,6 +899,13 @@ export default function NeedleDrop() {
                     ))}
                   </div>
 
+                  <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Songs per round</div>
+                  <div className="row">
+                    {([3, 5, 10] as const).map((n) => (
+                      <button key={n} className={'chip' + (songsPer === n ? ' on' : '')} onClick={() => setSongsPer(n)}>{n}</button>
+                    ))}
+                  </div>
+
                   {!poolYears.length && emptySuggestion && (
                     <div className="hint" style={{ color: 'var(--red)', marginTop: 12, textAlign: 'center' }}>
                       No years match. {emptySuggestion}
@@ -992,22 +1006,22 @@ export default function NeedleDrop() {
         {/* ===== GM PICK SONGS ===== */}
         {phase === 'gmPickSongs' && gm && (
           <>
-            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Pick 3 songs</div>
+            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Pick {songsPer} songs</div>
             <div className="card">
               <div className="muted hint" style={{ marginBottom: 14 }}>
-                Year {target}. Choose exactly three. ({gmPicked.length}/3)
+                Year {target}. Choose exactly {songsPer}. ({gmPicked.length}/{songsPer})
               </div>
               {gmCandidates.map((s, i) => {
                 const sel = gmPicked.includes(i);
                 return (
                   <button key={i} className={'pick' + (sel ? ' sel' : '')} onClick={() => gmTogglePick(i)}
-                    disabled={!sel && gmPicked.length >= 3}>
+                    disabled={!sel && gmPicked.length >= songsPer}>
                     <span className="pick-num">{sel ? gmPicked.indexOf(i) + 1 : '+'}</span>
                     <span><span style={{ fontWeight: 600 }}>{s.t}</span> <span className="muted">&middot; {s.a}</span></span>
                   </button>
                 );
               })}
-              <button className="btn primary wide" style={{ marginTop: 14 }} disabled={gmPicked.length !== 3} onClick={gmConfirmSongs}>
+              <button className="btn primary wide" style={{ marginTop: 14 }} disabled={gmPicked.length !== songsPer} onClick={gmConfirmSongs}>
                 Confirm songs ▶
               </button>
             </div>
@@ -1018,7 +1032,7 @@ export default function NeedleDrop() {
         {phase === 'song' && (
           <>
             <div className="row" style={{ justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-              <div className="eyebrow">Round {round} &middot; Song {Math.min(sIdx + 1, 3)} of {tracks.length || 3}</div>
+              <div className="eyebrow">Round {round} &middot; Song {Math.min(sIdx + 1, songsPer)} of {tracks.length || songsPer}</div>
               <div className="eyebrow muted">Year: ????</div>
             </div>
 
