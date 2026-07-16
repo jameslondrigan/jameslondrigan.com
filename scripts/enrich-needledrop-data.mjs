@@ -5,10 +5,16 @@
 //   node scripts/enrich-needledrop-data.mjs [--limit N] [--rate MS] [--force]
 //
 // Outputs:
-//   src/data/needledrop-songs.json  — all songs, enriched where resolved
-//   scripts/enrich-report.json      — unresolved + low-confidence entries
+//   public/data/tr-songs.json   — all songs, enriched where resolved
+//   scripts/enrich-report.json  — unresolved + low-confidence entries
 // Cache (resumable):
 //   scripts/.enrich-cache.json
+//
+// Single source of truth: this script writes the enriched data DIRECTLY to
+// public/data/tr-songs.json, which the game fetches at runtime as a static
+// asset (see src/components/needledrop/NeedleDrop.tsx -> SONGS_URL). There is
+// no src/data/needledrop-songs.json copy and the JSON is never bundled into
+// the app, so re-running enrichment updates the served file in one step.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,7 +24,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
 
 const SEED_PATH   = path.join(ROOT, 'src/data/needledrop-seed.json');
-const OUT_PATH    = path.join(ROOT, 'src/data/needledrop-songs.json');
+const OUT_PATH    = path.join(ROOT, 'public/data/tr-songs.json');
 const CACHE_PATH  = path.join(__dirname, '.enrich-cache.json');
 const REPORT_PATH = path.join(__dirname, 'enrich-report.json');
 
@@ -199,7 +205,7 @@ async function main() {
 
   if (!verbose && toRun.length > 0) console.log('');
 
-  /* ---- Write needledrop-songs.json (all 1725 songs) ---- */
+  /* ---- Write public/data/tr-songs.json (all 1725 songs) ---- */
   const out = songs
     .map(s => {
       const e = cache[s.t + '|' + s.a];
