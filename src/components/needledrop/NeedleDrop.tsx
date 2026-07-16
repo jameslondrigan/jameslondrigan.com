@@ -1,4 +1,6 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
+import { MpClient } from './mp';
+import type { RosterEntry, MpEvent, MpStatus } from './mp';
 
 /*
  * Track Record: music year-guessing party game
@@ -394,7 +396,7 @@ const Turntable = ({ playing }: { playing: boolean }) => (
   </div>
 );
 
-type Player = { id: string; name: string; score: number };
+type Player = { id: string; name: string; score: number; viaPhone?: boolean; token?: string };
 type Mode = 'classic' | 'gm';
 type Settings = {
   range: [number, number];
@@ -404,6 +406,7 @@ type Settings = {
   tier: 3 | 5 | 10;
   mode: Mode;
   songsPer: 3 | 5 | 10;
+  withPhones: boolean;
 };
 type Snapshot = {
   v: 1;
@@ -434,8 +437,9 @@ type Snapshot = {
   yRes: { pid: string; name: string; guess: number; pts: number }[];
   prevRanks: Record<string, number>;
   roundStartScores: Record<string, number>;
+  withPhones?: boolean;
 };
-type Phase = 'setup' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'year' | 'reveal' | 'board' | 'end';
+type Phase = 'setup' | 'lobby' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'collect' | 'year' | 'reveal' | 'board' | 'end';
 
 function Game() {
   const [phase, setPhase] = useState<Phase>('setup');
@@ -473,6 +477,17 @@ function Game() {
   const [revealDone, setRevealDone] = useState(false);
   const [showHowToPlay, setShowHowToPlay] = useState(false);
   const [resumeSnap, setResumeSnap] = useState<Snapshot | null>(null);
+
+  /* ---- Multiplayer ("Play with phones"). All of this is inert when withPhones is false. ---- */
+  const [withPhones, setWithPhones] = useState(false);
+  const [room, setRoom] = useState<{ code: string; hostToken: string } | null>(null);
+  const [roster, setRoster] = useState<RosterEntry[]>([]);
+  const [mpStatus, setMpStatus] = useState<MpStatus>('idle');
+  const [mpError, setMpError] = useState<string | null>(null);
+  const [phoneProgress, setPhoneProgress] = useState<{ submitted: number; total: number }>({ submitted: 0, total: 0 });
+  const phoneGuessesRef = useRef<Record<string, number>>({});
+  const mpRef = useRef<MpClient | null>(null);
+  const mpEventRef = useRef<(e: MpEvent) => void>(() => {});
 
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const srcNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
@@ -525,6 +540,10 @@ function Game() {
   /* GM mode: current host + the players who actually play this round (host excluded) */
   const gm = mode === 'gm' ? (players[gmIdx] ?? null) : null;
   const participants = gm ? players.filter((p) => p.id !== gm.id) : players;
+  // With phones on, phone players guess via their controller; only local (host-added)
+  // players use the handoff gate. Single-device: guessOrder === participants (unchanged).
+  const phoneParts = withPhones ? participants.filter((p) => p.viaPhone) : [];
+  const guessOrder = withPhones ? participants.filter((p) => !p.viaPhone) : participants;
   const poolYearsSorted = useMemo(() => [...poolYears].sort((a, b) => a - b), [poolYears]);
   const nearestEligible = (v: number) => {
     if (!poolYearsSorted.length) return v;
@@ -605,19 +624,105 @@ function Game() {
     applyCustom(start, v, warn);
   };
 
-  function start() {
-    const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
-    if (ps.length === 0) return;
-    const useGm = mode === 'gm' && ps.length >= 3;
-    lsSet(K_ROSTER, ps.map((p) => p.name));
-    lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode: useGm ? 'gm' : 'classic', songsPer } as Settings);
-    setResumeSnap(null);
+  function beginGame(ps: Player[], useGm: boolean) {
     setMode(useGm ? 'gm' : 'classic');
     setPlayers(ps); setPrevRanks({});
     setRoundStartScores(Object.fromEntries(ps.map((p) => [p.id, 0])));
     setGmIdx(0); setRound(1);
     if (useGm) setPhase('gmHandoff');
     else { startRound(); setPhase('song'); }
+  }
+
+  function start() {
+    const ps = names.map((n) => n.trim()).filter(Boolean).map((n, i) => ({ id: i + ':' + n, name: n, score: 0 }));
+    if (ps.length === 0) return;
+    const useGm = mode === 'gm' && ps.length >= 3;
+    lsSet(K_ROSTER, ps.map((p) => p.name));
+    lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode: useGm ? 'gm' : 'classic', songsPer, withPhones } as Settings);
+    setResumeSnap(null);
+    beginGame(ps, useGm);
+  }
+
+  /* ---- Multiplayer host flow (only reached when withPhones is on) ---- */
+  const handleMpEvent = (e: MpEvent) => {
+    if (e.event === 'roomCreated') {
+      const r = { code: e.code, hostToken: e.hostToken };
+      setRoom(r);
+      mpRef.current?.setRejoin(e.code, e.hostToken);
+      try { sessionStorage.setItem('tr:mp:v1', JSON.stringify(r)); } catch { /* */ }
+      setPhase('lobby');
+    } else if (e.event === 'rosterUpdate') {
+      setRoster(e.roster);
+    } else if (e.event === 'joined') {
+      if (e.roster) setRoster(e.roster);
+    } else if (e.event === 'guessProgress') {
+      setPhoneProgress({ submitted: e.submitted, total: e.total });
+    } else if (e.event === 'revealGuesses') {
+      const map: Record<string, number> = {};
+      for (const g of e.guesses) {
+        const pl = phoneParts.find((p) => p.name === g.name);
+        if (pl) map[pl.id] = g.year;
+      }
+      phoneGuessesRef.current = map;
+      if (guessOrder.length > 0) { setGIdx(0); setPhase('handoff'); }
+      else { finalizeYear({}); }
+    } else if (e.event === 'error') {
+      console.warn('[mp]', e.code, e.msg);
+    }
+  };
+
+  function hostCreateRoom() {
+    const localNames = names.map((n) => n.trim()).filter(Boolean);
+    lsSet(K_ROSTER, localNames);
+    lsSet(K_SETTINGS, { range, customActive, lastCustom, genre, tier, mode, songsPer, withPhones: true } as Settings);
+    setResumeSnap(null); setMpError(null); setRoster([]);
+    const client = new MpClient((ev) => mpEventRef.current(ev), setMpStatus);
+    mpRef.current = client;
+    client.connect().then(() => client.createRoom()).catch(() => {
+      setMpError('Could not reach the room server.');
+      try { client.close(); } catch { /* */ }
+      mpRef.current = null;
+    });
+  }
+
+  function startFromLobby() {
+    const localPlayers: Player[] = names.map((n) => n.trim()).filter(Boolean)
+      .map((n, i) => ({ id: 'L' + i + ':' + n, name: n, score: 0, viaPhone: false }));
+    const phonePlayers: Player[] = roster
+      .map((r, i) => ({ id: 'P' + i + ':' + (r.token || r.name), name: r.name, score: 0, viaPhone: true, token: r.token }));
+    const ps = [...localPlayers, ...phonePlayers];
+    if (ps.length === 0) return;
+    const useGm = mode === 'gm' && ps.length >= 3;
+    beginGame(ps, useGm);
+  }
+
+  function leaveRoom() {
+    try { mpRef.current?.close(); } catch { /* */ }
+    mpRef.current = null;
+    try { sessionStorage.removeItem('tr:mp:v1'); } catch { /* */ }
+    setRoom(null); setRoster([]); setMpStatus('idle');
+  }
+
+  /* Year-guess collection for phone players (host-driven pacing, doc section 7). */
+  function startCollect() {
+    phoneGuessesRef.current = {};
+    setPhoneProgress({ submitted: 0, total: phoneParts.length });
+    mpRef.current?.hostPhase('openGuess', { round, min: rMin, max: rMax, songs: tracks.map((t) => ({ t: t.t, a: t.a })) });
+    setPhase('collect');
+  }
+  function closeCollect() {
+    mpRef.current?.hostPhase('closeGuess'); // revealGuesses arrives -> handleMpEvent advances
+  }
+  function finalizeYear(localGuessMap: Record<string, number>) {
+    const all = withPhones ? { ...phoneGuessesRef.current, ...localGuessMap } : localGuessMap;
+    const res = participants.map((pl) => {
+      const gv = all[pl.id];
+      const pts = gv == null ? 0 : yearPts(Math.abs(gv - (target as number)));
+      return { pid: pl.id, name: pl.name, guess: gv == null ? NaN : gv, pts };
+    });
+    setYRes(res);
+    setPlayers((ps) => ps.map((pl) => { const r = res.find((x) => x.pid === pl.id); return { ...pl, score: pl.score + (r ? r.pts : 0) }; }));
+    setPhase('reveal');
   }
 
   /* GM round: host sets the year on a snap-to-eligible dial, then picks 3 songs */
@@ -742,25 +847,22 @@ function Game() {
     if (sIdx < tracks.length - 1) {
       setSIdx((i) => i + 1); setRevealed(false);
       setTSel(new Set()); setASel(new Set());
-    } else { setGIdx(0); setGuesses({}); setPhase('handoff'); }
+    } else {
+      setGIdx(0); setGuesses({});
+      // Phones on with phone players: collect their guesses first; then local handoff.
+      if (withPhones && phoneParts.length > 0) startCollect();
+      else setPhase('handoff');
+    }
   }
 
   function beginGuess() { setTuner(midYear); setPhase('year'); }
 
   function lockYear() {
-    const p = participants[gIdx];
+    const p = guessOrder[gIdx];
     const g = { ...guesses, [p.id]: tuner };
     setGuesses(g);
-    if (gIdx < participants.length - 1) { setGIdx((i) => i + 1); setPhase('handoff'); }
-    else {
-      const res = participants.map((pl) => ({
-        pid: pl.id, name: pl.name, guess: g[pl.id],
-        pts: yearPts(Math.abs(g[pl.id] - (target as number))),
-      }));
-      setYRes(res);
-      setPlayers((ps) => ps.map((pl) => { const r = res.find((x) => x.pid === pl.id); return { ...pl, score: pl.score + (r ? r.pts : 0) }; }));
-      setPhase('reveal');
-    }
+    if (gIdx < guessOrder.length - 1) { setGIdx((i) => i + 1); setPhase('handoff'); }
+    else finalizeYear(g);
   }
 
   const nextRound = () => {
@@ -794,7 +896,10 @@ function Game() {
     if (v !== tuner) { tick(); setTuner(v); }
   };
 
-  useEffect(() => () => stopAudio(), []);
+  useEffect(() => () => { stopAudio(); try { mpRef.current?.close(); } catch { /* */ } }, []);
+
+  // Keep the multiplayer event handler pointing at the latest closure.
+  useEffect(() => { mpEventRef.current = handleMpEvent; });
 
   /* Restore last roster + settings as setup defaults (all reads guarded). */
   useEffect(() => {
@@ -818,6 +923,7 @@ function Game() {
         if (st.tier === 3 || st.tier === 5 || st.tier === 10) setTier(st.tier);
         if (st.mode === 'classic' || st.mode === 'gm') setMode(st.mode);
         if (st.songsPer === 3 || st.songsPer === 5 || st.songsPer === 10) setSongsPer(st.songsPer);
+        if (typeof st.withPhones === 'boolean') setWithPhones(st.withPhones);
       }
     } catch { /* corrupt state: keep defaults */ }
   }, []);
@@ -835,8 +941,8 @@ function Game() {
 
   /* Persist a snapshot at every meaningful transition; clear it when the game ends. */
   useEffect(() => {
-    if (phase === 'setup') return;                 // nothing in progress yet
-    if (phase === 'end') { lsRemove(K_GAME); return; } // finished
+    if (phase === 'setup' || phase === 'lobby') return; // nothing in progress yet
+    if (phase === 'end') { lsRemove(K_GAME); return; }  // finished
     if (loadState === 'loading') return;           // wait until this round's tracks resolve
     const snap: Snapshot = {
       v: 1, ts: Date.now(), phase, players, round, mode, gmIdx,
@@ -844,6 +950,7 @@ function Game() {
       tracks, loadState, sIdx, target, revealed,
       tSel: [...tSel], aSel: [...aSel], gIdx, guesses, tuner,
       gmCandidates, gmPicked, yRes, prevRanks, roundStartScores,
+      withPhones,
     };
     lsSet(K_GAME, snap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -860,6 +967,21 @@ function Game() {
     setPrevRanks(s.prevRanks); setRoundStartScores(s.roundStartScores);
     setLoadState(s.tracks.length ? 'ready' : s.loadState);
     setResumeSnap(null);
+    // Multiplayer: reclaim the room via the hostToken stored in sessionStorage,
+    // then resync roster/phase from the server (ADR-5). Audio never auto-resumes.
+    setWithPhones(!!s.withPhones);
+    if (s.withPhones) {
+      try {
+        const raw = sessionStorage.getItem('tr:mp:v1');
+        if (raw) {
+          const r = JSON.parse(raw) as { code: string; hostToken: string };
+          setRoom(r);
+          const client = new MpClient((ev) => mpEventRef.current(ev), setMpStatus);
+          mpRef.current = client;
+          client.connect().then(() => client.rejoinNow(r.code, r.hostToken)).catch(() => setMpError('Lost the room connection.'));
+        }
+      } catch { /* */ }
+    }
     setPhase(s.phase);
   };
   const startFresh = () => { lsRemove(K_GAME); setResumeSnap(null); };
@@ -959,6 +1081,21 @@ function Game() {
                     <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Game Master needs at least 3 players.</div>
                   )}
 
+                  <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Phones</div>
+                  <div className="row">
+                    <button className={'chip' + (!withPhones ? ' on' : '')} onClick={() => setWithPhones(false)}>One device</button>
+                    <button className={'chip' + (withPhones ? ' on' : '')} onClick={() => setWithPhones(true)}>Play with phones</button>
+                  </div>
+                  {withPhones && (
+                    <div className="muted hint" style={{ marginTop: 6, fontSize: 12 }}>Each player joins from their own phone with a room code. Anyone without a phone still guesses on this device.</div>
+                  )}
+                  {mpError && (
+                    <div className="hint" style={{ color: 'var(--red)', marginTop: 10 }}>
+                      {mpError}{' '}
+                      <button className="btn sm" style={{ marginLeft: 6 }} onClick={() => { setWithPhones(false); setMpError(null); start(); }}>Start on one device</button>
+                    </div>
+                  )}
+
                   <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Era</div>
                   <div className="row">
                     {ERA_PRESETS.map((e, i) => (
@@ -1014,8 +1151,9 @@ function Game() {
                       No years match. {emptySuggestion}
                     </div>
                   )}
-                  <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length} onClick={start}>
-                    Start game &#9654;
+                  <button className="btn primary wide" style={{ marginTop: 22 }} disabled={!poolYears.length}
+                    onClick={withPhones ? hostCreateRoom : start}>
+                    {withPhones ? (mpStatus === 'connecting' ? 'Creating room…' : 'Create room ▶') : 'Start game ▶'}
                   </button>
                   <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setShowHowToPlay(true)}>
                     How to play
@@ -1051,6 +1189,37 @@ function Game() {
             </div>
             <div className="muted hint" style={{ textAlign: 'center', marginTop: 14, lineHeight: 1.5 }}>
               Song +1 &middot; Artist +1 &middot; Year: exact <b style={{ color: 'var(--cream)' }}>5</b>, within 1 yr <b style={{ color: 'var(--cream)' }}>3</b>, within 3 yrs <b style={{ color: 'var(--cream)' }}>1</b>
+            </div>
+          </>
+        )}
+
+        {/* ===== LOBBY (multiplayer) ===== */}
+        {phase === 'lobby' && (
+          <>
+            <div style={{ textAlign: 'center', marginBottom: 6 }}>
+              <div className="eyebrow" style={{ marginBottom: 10 }}>Room code</div>
+              <div className="disp" style={{ fontSize: 84, letterSpacing: '0.08em', color: 'var(--amberhi)' }}>{room?.code || '····'}</div>
+              <div className="muted hint mono" style={{ marginTop: 8 }}>jameslondrigan.com/trackrecord/join</div>
+              <div className="muted hint" style={{ marginTop: 4 }}>
+                {mpStatus === 'open' ? 'Room is live' : mpStatus === 'connecting' ? 'Connecting…' : 'Reconnecting…'}
+              </div>
+            </div>
+            <div className="card" style={{ marginTop: 18 }}>
+              <div className="eyebrow" style={{ marginBottom: 12 }}>In the room ({roster.length})</div>
+              {roster.length === 0 && <div className="muted hint">Waiting for phones to join&hellip;</div>}
+              {roster.map((r, i) => (
+                <div key={i} className="chart-row">
+                  <div style={{ flex: 1, fontWeight: 600 }}>{r.name}</div>
+                  <div className={'chart-move ' + (r.connected ? 'nd-up' : 'nd-hold')}>{r.connected ? 'in' : 'away'}</div>
+                </div>
+              ))}
+              <button className="btn primary wide" style={{ marginTop: 14 }} disabled={!poolYears.length} onClick={startFromLobby}>
+                Start game ▶
+              </button>
+              <div className="muted hint" style={{ marginTop: 8, textAlign: 'center' }}>Players you named on the setup screen guess on this device.</div>
+              <button className="btn wide" style={{ marginTop: 8 }} onClick={() => { leaveRoom(); setPhase('setup'); }}>
+                Cancel room
+              </button>
             </div>
           </>
         )}
@@ -1215,14 +1384,14 @@ function Game() {
             <div className="eyebrow" style={{ marginBottom: 14 }}>Round {round} &middot; Year guess</div>
             <div className="muted">Pass the phone to</div>
             <div className="disp" style={{ fontSize: 56, margin: '6px 0 18px', color: 'var(--amberhi)' }}>
-              {participants[gIdx].name}
+              {guessOrder[gIdx].name}
             </div>
             <div className="muted hint" style={{ marginBottom: 22 }}>Everyone else, eyes up. Guesses stay secret.</div>
             <button className="btn primary wide" onClick={beginGuess}>
-              I&apos;m {participants[gIdx].name}, show the dial ▶
+              I&apos;m {guessOrder[gIdx].name}, show the dial ▶
             </button>
             <div className="dots" style={{ marginTop: 18 }}>
-              {participants.map((p, i) => (
+              {guessOrder.map((p, i) => (
                 <div key={p.id} className={'dot' + (i === gIdx ? ' on' : i < gIdx ? ' done' : '')} />
               ))}
             </div>
@@ -1235,7 +1404,7 @@ function Game() {
             <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Tune in the year</div>
             <div className="card">
               <div style={{ textAlign: 'center' }}>
-                <div className="title2" style={{ margin: '2px 0 14px' }}>{participants[gIdx].name}</div>
+                <div className="title2" style={{ margin: '2px 0 14px' }}>{guessOrder[gIdx].name}</div>
               </div>
               <div className="yearbig">{tuner}</div>
               <div className="tuner">
@@ -1270,6 +1439,27 @@ function Game() {
           </>
         )}
 
+        {/* ===== COLLECT (multiplayer phone guesses) ===== */}
+        {phase === 'collect' && (
+          <>
+            <div className="eyebrow" style={{ marginBottom: 16 }}>Round {round} &middot; Waiting for guesses</div>
+            <div className="card">
+              <div className="yearbig">{phoneProgress.submitted}<span style={{ color: 'var(--muted)', fontSize: 34 }}> / {phoneProgress.total}</span></div>
+              <div className="muted hint" style={{ textAlign: 'center', marginBottom: 16 }}>locked in</div>
+              <div className="eyebrow muted" style={{ marginBottom: 8 }}>On their phones</div>
+              {phoneParts.map((p) => (
+                <div key={p.id} className="muted hint" style={{ marginBottom: 4 }}>{p.name}</div>
+              ))}
+              <button className="btn primary wide" style={{ marginTop: 18 }} onClick={closeCollect}>
+                {phoneProgress.total > 0 && phoneProgress.submitted >= phoneProgress.total ? 'Everyone is in, reveal ▶' : 'Close guessing now ▶'}
+              </button>
+              {guessOrder.length > 0 && (
+                <div className="muted hint" style={{ marginTop: 8, textAlign: 'center' }}>Then this device passes around for {guessOrder.length} more.</div>
+              )}
+            </div>
+          </>
+        )}
+
         {/* ===== REVEAL ===== */}
         {phase === 'reveal' && (
           <>
@@ -1297,7 +1487,7 @@ function Game() {
                 <div className="eyebrow" style={{ margin: '18px 0 10px' }}>Year scoring</div>
                 {yRes.map((r) => (
                   <div className="standing" key={r.pid}>
-                    <div><b>{r.name}</b> <span className="muted mono" style={{ fontSize: 13 }}>guessed {r.guess}</span></div>
+                    <div><b>{r.name}</b> <span className="muted mono" style={{ fontSize: 13 }}>{Number.isFinite(r.guess) ? `guessed ${r.guess}` : 'no guess'}</span></div>
                     <div className={'pts ' + (r.pts > 0 ? 'win' : 'zero')}>+{r.pts}</div>
                   </div>
                 ))}
@@ -1340,7 +1530,7 @@ function Game() {
               <button className="btn primary wide" style={{ marginTop: 14 }} onClick={playAgain}>
                 Play again (same crew) ▶
               </button>
-              <button className="btn wide" style={{ marginTop: 8 }} onClick={() => setPhase('setup')}>
+              <button className="btn wide" style={{ marginTop: 8 }} onClick={() => { leaveRoom(); setPhase('setup'); }}>
                 New game
               </button>
             </div>
