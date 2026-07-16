@@ -8,11 +8,24 @@ import NeedleDrop from '../components/needledrop/NeedleDrop';
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#160f08" />
-    <title>Track Record — music year-guessing party game</title>
+    <title>Track Record: music year-guessing party game</title>
     <meta name="description" content="Listen to three charted hits, name the song and artist, then tune the dial to the year they all hit the top 10." />
     <meta name="robots" content="index,follow" />
+
+    <link rel="manifest" href="/trackrecord.webmanifest" />
+    <link rel="apple-touch-icon" href="/icons/tr-apple-touch.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Track Record" />
   </head>
   <body style="margin:0;background:#160f08;">
     <NeedleDrop client:only="react" />
+    <script is:inline>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', function () {
+          navigator.serviceWorker.register('/tr-sw.js', { scope: '/trackrecord' }).catch(function () {});
+        });
+      }
+    </script>
   </body>
 </html>
