@@ -1,0 +1,7 @@
+{
+  "name": "tr-mp-router",
+  "version": "1.0.0",
+  "description": "Track Record multiplayer WebSocket router Lambda",
+  "type": "module",
+  "private": true
+}

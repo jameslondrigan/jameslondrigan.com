@@ -1,0 +1,27 @@
+name: Lambda tests
+
+# Unit tests for the multiplayer router. Pure (in-memory fake for AWS), so no
+# credentials and no network. Runs on both PRs and pushes that touch the Lambda.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/modules/multiplayer/lambda/**'
+      - 'infra/modules/multiplayer/test/**'
+      - '.github/workflows/lambda-test.yml'
+  pull_request:
+    paths:
+      - 'infra/modules/multiplayer/lambda/**'
+      - 'infra/modules/multiplayer/test/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Run router unit tests
+        run: node --test
+        working-directory: infra/modules/multiplayer/test

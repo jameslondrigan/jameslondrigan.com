@@ -1,31 +1,74 @@
-// tr-mp-router: Track Record multiplayer WebSocket router (STUB).
-//
-// Commit 1 (infra) ships this minimal handler so the deployed API is testable:
-// $connect / $disconnect return 200, and $default echoes a structured error for
-// any input. The full protocol (createRoom/joinRoom/rejoin/submitGuess/
-// host:phase/... per docs/MULTIPLAYER-ARCHITECTURE.md section 6) lands in
-// commit 2, which replaces this file and adds unit tests.
+// tr-mp-router Lambda entry point. Builds the injected `deps` from the AWS SDK
+// (bundled in the nodejs20.x runtime) and delegates to route() in router.mjs.
+// All protocol logic lives in router.mjs so it can be unit-tested without AWS.
+import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
+import { DynamoDBDocumentClient, GetCommand, PutCommand, UpdateCommand, DeleteCommand, QueryCommand } from '@aws-sdk/lib-dynamodb';
 import { ApiGatewayManagementApiClient, PostToConnectionCommand } from '@aws-sdk/client-apigatewaymanagementapi';
+import { route } from './router.mjs';
 
-export const handler = async (event) => {
+const TABLE = process.env.ROOMS_TABLE;
+const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
+  marshallOptions: { removeUndefinedValues: true },
+});
+
+function buildDeps(event) {
   const rc = event.requestContext || {};
-  const routeKey = rc.routeKey;
-  const connectionId = rc.connectionId;
+  const endpoint = `https://${rc.domainName}/${rc.stage}`;
+  const mgmt = new ApiGatewayManagementApiClient({ endpoint });
 
-  if (routeKey === '$connect' || routeKey === '$disconnect') {
-    return { statusCode: 200 };
-  }
+  return {
+    table: TABLE,
+    now: () => Date.now(),
+    random: Math.random,
 
-  // $default: structured error echo (no protocol yet).
-  try {
-    const endpoint = `https://${rc.domainName}/${rc.stage}`;
-    const client = new ApiGatewayManagementApiClient({ endpoint });
-    await client.send(new PostToConnectionCommand({
-      ConnectionId: connectionId,
-      Data: JSON.stringify({ error: { code: 'not_implemented', msg: 'router stub: protocol lands in commit 2' } }),
-    }));
-  } catch (err) {
-    console.log(JSON.stringify({ action: 'default', outcome: 'post_failed', error: String(err && err.name || err) }));
-  }
-  return { statusCode: 200 };
-};
+    async get(pk, sk) {
+      const out = await ddb.send(new GetCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+      return out.Item || null;
+    },
+    async put(item, opts = {}) {
+      const params = { TableName: TABLE, Item: item };
+      if (opts.ifNotExists) params.ConditionExpression = 'attribute_not_exists(PK) AND attribute_not_exists(SK)';
+      await ddb.send(new PutCommand(params));
+    },
+    async update(pk, sk, changes) {
+      const names = {};
+      const values = {};
+      const sets = [];
+      let i = 0;
+      for (const [k, v] of Object.entries(changes)) {
+        const nk = `#k${i}`;
+        const vk = `:v${i}`;
+        names[nk] = k;
+        values[vk] = v;
+        sets.push(`${nk} = ${vk}`);
+        i++;
+      }
+      await ddb.send(new UpdateCommand({
+        TableName: TABLE,
+        Key: { PK: pk, SK: sk },
+        UpdateExpression: 'SET ' + sets.join(', '),
+        ExpressionAttributeNames: names,
+        ExpressionAttributeValues: values,
+      }));
+    },
+    async del(pk, sk) {
+      await ddb.send(new DeleteCommand({ TableName: TABLE, Key: { PK: pk, SK: sk } }));
+    },
+    async query(pk) {
+      const out = await ddb.send(new QueryCommand({
+        TableName: TABLE,
+        KeyConditionExpression: 'PK = :pk',
+        ExpressionAttributeValues: { ':pk': pk },
+      }));
+      return out.Items || [];
+    },
+    async send(connectionId, obj) {
+      await mgmt.send(new PostToConnectionCommand({
+        ConnectionId: connectionId,
+        Data: JSON.stringify(obj),
+      }));
+    },
+  };
+}
+
+export const handler = async (event) => route(event, buildDeps(event));
