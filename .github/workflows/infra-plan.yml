@@ -1,0 +1,56 @@
+name: Infra plan
+
+# Read-only terraform plan for review. Applies are manual (admin creds) by
+# design: this workflow assumes a ReadOnlyAccess role and never applies.
+# Triggers only on infra changes, so frontend deploys and infra never
+# cross-trigger.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'infra/**'
+      - '.github/workflows/infra-plan.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: infra-plan
+  cancel-in-progress: true
+
+permissions:
+  id-token: write
+  contents: read
+
+env:
+  AWS_REGION:    us-east-1
+  PLAN_ROLE_ARN: arn:aws:iam::481207241421:role/jameslondrigan-infra-plan
+
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: infra
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.14.5"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ env.PLAN_ROLE_ARN }}
+          role-session-name: github-actions-infra-plan
+          aws-region:        ${{ env.AWS_REGION }}
+
+      - name: Terraform init
+        run: terraform init -input=false
+
+      - name: Terraform validate
+        run: terraform validate
+
+      # -lock=false: the plan role is read-only and cannot write the state lock.
+      # Safe because plan never mutates state.
+      - name: Terraform plan
+        run: terraform plan -input=false -lock=false -no-color

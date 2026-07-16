@@ -78,3 +78,19 @@ resource "aws_iam_role_policy" "deploy" {
   role   = aws_iam_role.deploy.id
   policy = data.aws_iam_policy_document.deploy.json
 }
+
+# ── Infra plan-only role (read-only) ─────────────────────────────────────────
+# Lets the infra-plan workflow run `terraform plan` for review. Read-only
+# (ReadOnlyAccess); it can never apply. Trust is pinned to refs/heads/main on
+# this repo exactly like the deploy role, deliberately NOT expanded to pull_request,
+# so the existing OIDC posture is unchanged. Applies stay manual (admin creds).
+
+resource "aws_iam_role" "infra_plan" {
+  name               = "jameslondrigan-infra-plan"
+  assume_role_policy = data.aws_iam_policy_document.github_trust.json
+}
+
+resource "aws_iam_role_policy_attachment" "infra_plan_readonly" {
+  role       = aws_iam_role.infra_plan.name
+  policy_arn = "arn:aws:iam::aws:policy/ReadOnlyAccess"
+}

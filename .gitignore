@@ -14,6 +14,8 @@ node_modules/
 *.tfvars.backup
 override.tf
 override.tf.json
+# Lambda build artifacts (zipped from source by archive_file at plan time)
+**/.build/
 
 # Bootstrap local state is intentionally committed
 !infra/bootstrap/terraform.tfstate

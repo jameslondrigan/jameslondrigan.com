@@ -66,3 +66,10 @@ module "ci" {
   site_bucket_arn  = module.static_site.site_bucket_arn
   distribution_arn = module.static_site.distribution_arn
 }
+
+module "multiplayer" {
+  source = "./modules/multiplayer"
+
+  domain_name     = var.domain_name
+  route53_zone_id = data.aws_route53_zone.main.zone_id
+}

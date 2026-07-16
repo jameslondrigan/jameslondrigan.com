@@ -3,6 +3,12 @@ name: Deploy
 on:
   push:
     branches: [main]
+    # Frontend deploy only. Infra, docs, and design briefs never churn the site.
+    paths-ignore:
+      - 'infra/**'
+      - 'docs/**'
+      - 'needledrop-drop/**'
+      - '**/*.md'
 
 concurrency:
   group: deploy

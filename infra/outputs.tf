@@ -17,3 +17,18 @@ output "deploy_role_arn" {
   description = "IAM role ARN for GitHub Actions OIDC assume-role"
   value       = module.ci.deploy_role_arn
 }
+
+output "infra_plan_role_arn" {
+  description = "IAM role ARN for the read-only infra-plan workflow"
+  value       = module.ci.infra_plan_role_arn
+}
+
+output "ws_endpoint" {
+  description = "Multiplayer WebSocket endpoint (custom domain)"
+  value       = module.multiplayer.ws_endpoint
+}
+
+output "rooms_table_name" {
+  description = "Multiplayer DynamoDB rooms table name"
+  value       = module.multiplayer.rooms_table_name
+}
