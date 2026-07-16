@@ -229,7 +229,7 @@ const CSS = `
 .nd .card{background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:18px;padding:22px}
 .nd .btn{font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:15px;border:1px solid var(--line);background:var(--panel2);color:var(--cream);border-radius:12px;padding:12px 16px;cursor:pointer;transition:transform .06s ease,border-color .15s,background .15s;min-height:44px}
 .nd .btn:hover{border-color:var(--amber)}
-.nd .btn:active{transform:translateY(1px)}
+.nd .btn:active{transform:scale(.97)}
 .nd .btn:disabled{opacity:.4;cursor:default;transform:none}
 .nd .btn.primary{background:linear-gradient(180deg,var(--amberhi),var(--amber));color:#2a1a06;border:none;box-shadow:0 6px 24px -8px var(--amber)}
 .nd .btn.wide{width:100%}
@@ -314,6 +314,21 @@ const CSS = `
 .nd .score-hint{font-family:'JetBrains Mono',monospace;font-size:11px;letter-spacing:.14em;color:var(--muted);text-align:center;margin-top:12px}
 .nd select.yr{font-family:'JetBrains Mono',monospace;font-size:15px;background:#160f08;border:1px solid var(--line);border-radius:10px;padding:11px 12px;color:var(--cream);min-height:44px;cursor:pointer;flex:1;min-width:0}
 .nd select.yr:focus{outline:none;border-color:var(--amber)}
+/* --- Commit 3: pressed states + phase entrance motion (transform/opacity only) --- */
+.nd .chip{transition:transform .06s ease,border-color .15s,background .15s,color .15s}
+.nd .chip:active{transform:scale(.96)}
+.nd .pick{transition:transform .06s ease,border-color .15s,background .15s}
+.nd .pick:active{transform:scale(.985)}
+@keyframes nd-slide{from{opacity:0;transform:translate3d(24px,0,0)}to{opacity:1;transform:none}}
+@keyframes nd-rise{from{opacity:0;transform:translate3d(0,28px,0)}to{opacity:1;transform:none}}
+@keyframes nd-fade{from{opacity:0}to{opacity:1}}
+.nd .anim-slide{animation:nd-slide .24s cubic-bezier(.2,0,0,1) both}
+.nd .anim-rise{animation:nd-rise .26s cubic-bezier(.2,0,0,1) both}
+.nd .anim-fade{animation:nd-fade .22s cubic-bezier(.2,0,0,1) both}
+@media(prefers-reduced-motion:reduce){
+  .nd .anim-slide,.nd .anim-rise,.nd .anim-fade{animation:none!important}
+  .nd .btn:active,.nd .chip:active,.nd .pick:active{transform:none!important;filter:brightness(1.18)}
+}
 `;
 
 /* ---- 7-bar VU meter (replaces EQ bars) ---- */
@@ -881,11 +896,17 @@ function Game() {
     );
   };
 
+  const phaseAnim = (p: Phase) =>
+    p === 'song' || p === 'year' || p === 'gmSetYear' || p === 'gmPickSongs' ? 'anim-slide'
+      : p === 'handoff' || p === 'gmHandoff' ? 'anim-rise'
+        : 'anim-fade';
+
   return (
     <div className="nd">
       <style>{CSS}</style>
       <audio ref={audioRef} crossOrigin="anonymous" onEnded={() => setPlaying(false)} />
       <div className="wrap">
+        <div key={phase} className={phaseAnim(phase)}>
 
         {/* ===== SETUP ===== */}
         {phase === 'setup' && (
@@ -1326,6 +1347,7 @@ function Game() {
           </>
         )}
 
+        </div>
       </div>
     </div>
   );
