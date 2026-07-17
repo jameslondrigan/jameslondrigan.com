@@ -13,7 +13,11 @@ const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}), {
 
 function buildDeps(event) {
   const rc = event.requestContext || {};
-  const endpoint = `https://${rc.domainName}/${rc.stage}`;
+  // Post replies to the execute-api management host, not rc.domainName: when the
+  // client connects via the custom domain (ws.jameslondrigan.com), domainName is
+  // that custom domain, and @connections there yields AccessDenied. apiId + region
+  // targets the API directly, which the ManageConnections IAM scope (apiId/*) allows.
+  const endpoint = `https://${rc.apiId}.execute-api.${process.env.AWS_REGION}.amazonaws.com/${rc.stage}`;
   const mgmt = new ApiGatewayManagementApiClient({ endpoint });
 
   return {
