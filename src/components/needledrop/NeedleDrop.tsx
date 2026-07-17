@@ -540,10 +540,11 @@ function Game() {
   /* GM mode: current host + the players who actually play this round (host excluded) */
   const gm = mode === 'gm' ? (players[gmIdx] ?? null) : null;
   const participants = gm ? players.filter((p) => p.id !== gm.id) : players;
-  // With phones on, phone players guess via their controller; only local (host-added)
-  // players use the handoff gate. Single-device: guessOrder === participants (unchanged).
-  const phoneParts = withPhones ? participants.filter((p) => p.viaPhone) : [];
-  const guessOrder = withPhones ? participants.filter((p) => !p.viaPhone) : participants;
+  // Multiplayer rosters come ONLY from phone joins (hybrid removed after playtest):
+  // in a room every participant guesses on their phone, so there is no local handoff.
+  // Single-device: guessOrder === participants and phoneParts is empty (unchanged).
+  const phoneParts = withPhones ? participants : [];
+  const guessOrder = withPhones ? [] : participants;
   const poolYearsSorted = useMemo(() => [...poolYears].sort((a, b) => a - b), [poolYears]);
   const nearestEligible = (v: number) => {
     if (!poolYearsSorted.length) return v;
@@ -664,8 +665,7 @@ function Game() {
         if (pl) map[pl.id] = g.year;
       }
       phoneGuessesRef.current = map;
-      if (guessOrder.length > 0) { setGIdx(0); setPhase('handoff'); }
-      else { finalizeYear({}); }
+      finalizeYear({}); // no local handoff in a room; all guesses come from phones
     } else if (e.event === 'error') {
       console.warn('[mp]', e.code, e.msg);
     }
@@ -686,12 +686,10 @@ function Game() {
   }
 
   function startFromLobby() {
-    const localPlayers: Player[] = names.map((n) => n.trim()).filter(Boolean)
-      .map((n, i) => ({ id: 'L' + i + ':' + n, name: n, score: 0, viaPhone: false }));
-    const phonePlayers: Player[] = roster
+    // Players come ONLY from phone joins; the local name list never feeds a room.
+    const ps: Player[] = roster
       .map((r, i) => ({ id: 'P' + i + ':' + (r.token || r.name), name: r.name, score: 0, viaPhone: true, token: r.token }));
-    const ps = [...localPlayers, ...phonePlayers];
-    if (ps.length === 0) return;
+    if (ps.length < 2) return;                       // lobby also blocks this in the UI
     const useGm = mode === 'gm' && ps.length >= 3;
     beginGame(ps, useGm);
   }
@@ -849,8 +847,8 @@ function Game() {
       setTSel(new Set()); setASel(new Set());
     } else {
       setGIdx(0); setGuesses({});
-      // Phones on with phone players: collect their guesses first; then local handoff.
-      if (withPhones && phoneParts.length > 0) startCollect();
+      // In a room, every guess comes from a phone; single-device uses the handoff gate.
+      if (withPhones) startCollect();
       else setPhase('handoff');
     }
   }
@@ -887,7 +885,8 @@ function Game() {
 
   const sorted = [...players].sort((a, b) => b.score - a.score);
   const readyCount = names.map((n) => n.trim()).filter(Boolean).length;
-  const gmAvailable = readyCount >= 3;
+  // In a room, players join later from phones, so GM isn't gated by local names.
+  const gmAvailable = withPhones ? true : readyCount >= 3;
   const modeSel: Mode = mode === 'gm' && gmAvailable ? 'gm' : 'classic';
   const song = tracks[sIdx];
   const onDial = (v: number) => { if (v !== tuner) { tick(); setTuner(v); } };
@@ -1055,18 +1054,28 @@ function Game() {
 
                 {/* Front: setup form */}
                 <div className="flip-front card">
-                  <div className="eyebrow" style={{ marginBottom: 12 }}>Players</div>
-                  {names.map((n, i) => (
-                    <div className="row" key={i} style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
-                      <input className="name" placeholder={'Player ' + (i + 1)} value={n}
-                        onChange={(e) => setNames((a) => a.map((x, k) => (k === i ? e.target.value : x)))} />
-                      {names.length > 1 && (
-                        <button className="btn sm" onClick={() => setNames((a) => a.filter((_, k) => k !== i))}>&times;</button>
+                  {/* Local player list is single-device only; a room's players come from phone joins. */}
+                  {!withPhones ? (
+                    <>
+                      <div className="eyebrow" style={{ marginBottom: 12 }}>Players</div>
+                      {names.map((n, i) => (
+                        <div className="row" key={i} style={{ marginBottom: 8, flexWrap: 'nowrap' }}>
+                          <input className="name" placeholder={'Player ' + (i + 1)} value={n}
+                            onChange={(e) => setNames((a) => a.map((x, k) => (k === i ? e.target.value : x)))} />
+                          {names.length > 1 && (
+                            <button className="btn sm" onClick={() => setNames((a) => a.filter((_, k) => k !== i))}>&times;</button>
+                          )}
+                        </div>
+                      ))}
+                      {names.length < 8 && (
+                        <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>
                       )}
-                    </div>
-                  ))}
-                  {names.length < 8 && (
-                    <button className="btn sm" style={{ marginTop: 4 }} onClick={() => setNames((a) => [...a, ''])}>+ Add player</button>
+                    </>
+                  ) : (
+                    <>
+                      <div className="eyebrow" style={{ marginBottom: 12 }}>Players</div>
+                      <div className="muted hint">Players join from their phones after you create the room. Anyone without a phone shares one or plays a single-device game.</div>
+                    </>
                   )}
 
                   <div className="eyebrow" style={{ margin: '20px 0 10px' }}>Mode</div>
@@ -1213,10 +1222,15 @@ function Game() {
                   <div className={'chart-move ' + (r.connected ? 'nd-up' : 'nd-hold')}>{r.connected ? 'in' : 'away'}</div>
                 </div>
               ))}
-              <button className="btn primary wide" style={{ marginTop: 14 }} disabled={!poolYears.length} onClick={startFromLobby}>
+              {roster.length < (mode === 'gm' ? 3 : 2) && (
+                <div className="muted hint" style={{ marginTop: 10, color: 'var(--red)' }}>
+                  Need at least {mode === 'gm' ? 3 : 2} players{mode === 'gm' ? ' for Game Master' : ''} to start.
+                </div>
+              )}
+              <button className="btn primary wide" style={{ marginTop: 14 }}
+                disabled={!poolYears.length || roster.length < (mode === 'gm' ? 3 : 2)} onClick={startFromLobby}>
                 Start game ▶
               </button>
-              <div className="muted hint" style={{ marginTop: 8, textAlign: 'center' }}>Players you named on the setup screen guess on this device.</div>
               <button className="btn wide" style={{ marginTop: 8 }} onClick={() => { leaveRoom(); setPhase('setup'); }}>
                 Cancel room
               </button>
@@ -1453,9 +1467,6 @@ function Game() {
               <button className="btn primary wide" style={{ marginTop: 18 }} onClick={closeCollect}>
                 {phoneProgress.total > 0 && phoneProgress.submitted >= phoneProgress.total ? 'Everyone is in, reveal ▶' : 'Close guessing now ▶'}
               </button>
-              {guessOrder.length > 0 && (
-                <div className="muted hint" style={{ marginTop: 8, textAlign: 'center' }}>Then this device passes around for {guessOrder.length} more.</div>
-              )}
             </div>
           </>
         )}
