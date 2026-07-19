@@ -15,9 +15,14 @@ export type MpEvent =
   | { event: 'joined'; token: string; roster: RosterEntry[]; host?: boolean; phase?: string; roundNo?: number }
   | { event: 'rosterUpdate'; roster: RosterEntry[] }
   | { event: 'phaseChange'; phase: string; payload?: any }
-  | { event: 'guessProgress'; submitted: number; total: number }
+  | { event: 'guessProgress'; submitted: number; total: number; in?: string[]; waiting?: string[] }
   | { event: 'revealGuesses'; guesses: { name: string; year: number }[] }
   | { event: 'guessLocked' }
+  // Phase B GM-from-phone
+  | { event: 'gmStage'; stage: string; payload?: any }  // to the GM's phone
+  | { event: 'gmYear'; year: number }                   // to the host
+  | { event: 'gmPick'; indices: number[] }              // to the host
+  | { event: 'gmRejoined'; token: string }              // to the host
   | { event: 'pong' }
   | { event: 'error'; code: string; msg: string };
 
@@ -108,6 +113,10 @@ export class MpClient {
   hostPhase(phase: string, payload?: object) { this.raw({ action: 'host:phase', phase, payload: payload || {} }); }
   submitGuess(year: number) { this.raw({ action: 'submitGuess', year }); }
   kick(token: string) { this.raw({ action: 'host:kick', token }); }
+  // Phase B GM-from-phone
+  hostGm(token: string, stage: string, payload?: object) { this.raw({ action: 'host:gm', token, stage, payload: payload || {} }); }
+  gmYear(year: number) { this.raw({ action: 'gm:year', year }); }
+  gmPick(indices: number[]) { this.raw({ action: 'gm:pick', indices }); }
 
   close() {
     this.wantOpen = false;

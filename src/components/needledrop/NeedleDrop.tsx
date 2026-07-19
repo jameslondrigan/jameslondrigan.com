@@ -438,8 +438,10 @@ type Snapshot = {
   prevRanks: Record<string, number>;
   roundStartScores: Record<string, number>;
   withPhones?: boolean;
+  gmStage?: GmStage;
 };
-type Phase = 'setup' | 'lobby' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'song' | 'handoff' | 'collect' | 'year' | 'reveal' | 'board' | 'end';
+type Phase = 'setup' | 'lobby' | 'gmHandoff' | 'gmSetYear' | 'gmPickSongs' | 'gmWait' | 'song' | 'handoff' | 'collect' | 'year' | 'reveal' | 'board' | 'end';
+type GmStage = 'year' | 'pick' | 'done' | null;
 
 function Game() {
   const [phase, setPhase] = useState<Phase>('setup');
@@ -484,8 +486,11 @@ function Game() {
   const [roster, setRoster] = useState<RosterEntry[]>([]);
   const [mpStatus, setMpStatus] = useState<MpStatus>('idle');
   const [mpError, setMpError] = useState<string | null>(null);
-  const [phoneProgress, setPhoneProgress] = useState<{ submitted: number; total: number }>({ submitted: 0, total: 0 });
+  const [phoneProgress, setPhoneProgress] = useState<{ submitted: number; total: number; in: string[]; waiting: string[] }>({ submitted: 0, total: 0, in: [], waiting: [] });
+  const [gmStage, setGmStage] = useState<GmStage>(null);
+  const [gmRecover, setGmRecover] = useState(false);
   const phoneGuessesRef = useRef<Record<string, number>>({});
+  const gmStagePayloadRef = useRef<any>({});
   const mpRef = useRef<MpClient | null>(null);
   const mpEventRef = useRef<(e: MpEvent) => void>(() => {});
 
@@ -630,7 +635,7 @@ function Game() {
     setPlayers(ps); setPrevRanks({});
     setRoundStartScores(Object.fromEntries(ps.map((p) => [p.id, 0])));
     setGmIdx(0); setRound(1);
-    if (useGm) setPhase('gmHandoff');
+    if (useGm) enterGmRound(ps[0]);
     else { startRound(); setPhase('song'); }
   }
 
@@ -657,7 +662,7 @@ function Game() {
     } else if (e.event === 'joined') {
       if (e.roster) setRoster(e.roster);
     } else if (e.event === 'guessProgress') {
-      setPhoneProgress({ submitted: e.submitted, total: e.total });
+      setPhoneProgress({ submitted: e.submitted, total: e.total, in: e.in || [], waiting: e.waiting || [] });
     } else if (e.event === 'revealGuesses') {
       const map: Record<string, number> = {};
       for (const g of e.guesses) {
@@ -666,6 +671,13 @@ function Game() {
       }
       phoneGuessesRef.current = map;
       finalizeYear({}); // no local handoff in a room; all guesses come from phones
+    } else if (e.event === 'gmYear') {
+      onGmYearFromPhone(e.year);
+    } else if (e.event === 'gmPick') {
+      onGmPickFromPhone(e.indices);
+    } else if (e.event === 'gmRejoined') {
+      // GM's phone reconnected mid-selection: re-send the current stage.
+      if (gm && gm.token && gmStage) mpRef.current?.hostGm(gm.token, gmStage, gmStagePayloadRef.current || {});
     } else if (e.event === 'error') {
       console.warn('[mp]', e.code, e.msg);
     }
@@ -704,7 +716,7 @@ function Game() {
   /* Year-guess collection for phone players (host-driven pacing, doc section 7). */
   function startCollect() {
     phoneGuessesRef.current = {};
-    setPhoneProgress({ submitted: 0, total: phoneParts.length });
+    setPhoneProgress({ submitted: 0, total: phoneParts.length, in: [], waiting: phoneParts.map((p) => p.name) });
     mpRef.current?.hostPhase('openGuess', { round, min: rMin, max: rMax, songs: tracks.map((t) => ({ t: t.t, a: t.a })) });
     setPhase('collect');
   }
@@ -753,6 +765,66 @@ function Game() {
       else if (found.length > 0) { setTracks(found); setLoadState('ready'); }
       else setLoadState('failed');
     });
+  }
+
+  /* ---- GM-from-phone (Phase B): the GM sets year + songs on their own phone.
+   * The host computes eligibility/candidates and relays stages; single-device GM
+   * and the on-host recovery path still use gmHandoff/gmSetYear/gmPickSongs. ---- */
+  function enterGmRound(gmPlayer: Player | undefined) {
+    setGmRecover(false);
+    if (withPhones && gmPlayer && gmPlayer.token) {
+      const payload = { min: rMin, max: rMax, eligibleYears: poolYearsSorted };
+      gmStagePayloadRef.current = payload;
+      setGmStage('year');
+      mpRef.current?.hostGm(gmPlayer.token, 'year', payload);
+      setPhase('gmWait');
+    } else {
+      setGmStage(null);
+      setPhase('gmHandoff');
+    }
+  }
+  function onGmYearFromPhone(year: number) {
+    if (phase !== 'gmWait' || gmRecover || !gm) return;
+    const yr = nearestEligible(year);
+    setTarget(yr);
+    const yearPool = pool.filter((s) => s.y === yr);
+    const weighted = [...yearPool].sort((a, b) => ((b.w ?? 0) + Math.random() * 8) - ((a.w ?? 0) + Math.random() * 8));
+    const cands = weighted.slice(0, songsPer + 5);
+    setGmCandidates(cands);
+    const payload = { year: yr, candidates: cands.map((c) => ({ t: c.t, a: c.a })) };
+    gmStagePayloadRef.current = payload;
+    setGmStage('pick');
+    if (gm.token) mpRef.current?.hostGm(gm.token, 'pick', payload);
+  }
+  function onGmPickFromPhone(indices: number[]) {
+    if (phase !== 'gmWait' || gmRecover || !gm) return;
+    const uniq = [...new Set(indices)].filter((i) => Number.isInteger(i) && i >= 0 && i < gmCandidates.length);
+    if (uniq.length !== songsPer) { // invalid selection: re-send the pick stage
+      if (gm.token) mpRef.current?.hostGm(gm.token, 'pick', gmStagePayloadRef.current || {});
+      return;
+    }
+    setGmStage('done');
+    if (gm.token) mpRef.current?.hostGm(gm.token, 'done', {});
+    const seq = ++roundSeq.current;
+    setLoadState('loading'); setTracks([]);
+    setSIdx(0); setRevealed(false);
+    setTSel(new Set()); setASel(new Set());
+    setGmPicked(uniq);
+    const chosen = uniq.map((i) => gmCandidates[i]);
+    const ordered = [...chosen.filter((s) => s.preview !== null), ...chosen.filter((s) => s.preview === null)];
+    setPhase('song');
+    resolveRound(ordered, songsPer).then((found) => {
+      if (roundSeq.current !== seq) return;
+      if (found.length >= songsPer) { setTracks(found.slice(0, songsPer)); setLoadState('ready'); }
+      else if (found.length > 0) { setTracks(found); setLoadState('ready'); }
+      else setLoadState('failed');
+    });
+  }
+  function gmRecoverOnHost() {
+    if (gm && gm.token) mpRef.current?.hostGm(gm.token, 'done', {}); // release the phone
+    setGmRecover(true); setGmStage(null);
+    setTuner(nearestEligible(midYear));
+    setPhase('gmSetYear');
   }
 
   /* Route the audio element through a GainNode so we can fade (Apple's CDN
@@ -870,7 +942,7 @@ function Game() {
     setPrevRanks(ranks);
     setRoundStartScores(Object.fromEntries(players.map((p) => [p.id, p.score])));
     setRound((r) => r + 1);
-    if (mode === 'gm') { setGmIdx((i) => (i + 1) % players.length); setPhase('gmHandoff'); }
+    if (mode === 'gm') { const ni = (gmIdx + 1) % players.length; setGmIdx(ni); enterGmRound(players[ni]); }
     else { startRound(); setPhase('song'); }
   };
 
@@ -879,7 +951,7 @@ function Game() {
     setPlayers((ps) => ps.map((p) => ({ ...p, score: 0 })));
     setRoundStartScores(Object.fromEntries(players.map((p) => [p.id, 0])));
     setGmIdx(0); setRound(1);
-    if (mode === 'gm') setPhase('gmHandoff');
+    if (mode === 'gm') enterGmRound(players[0]);
     else { startRound(); setPhase('song'); }
   };
 
@@ -949,11 +1021,11 @@ function Game() {
       tracks, loadState, sIdx, target, revealed,
       tSel: [...tSel], aSel: [...aSel], gIdx, guesses, tuner,
       gmCandidates, gmPicked, yRes, prevRanks, roundStartScores,
-      withPhones,
+      withPhones, gmStage,
     };
     lsSet(K_GAME, snap);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [phase, players, round, mode, gmIdx, tracks, loadState, sIdx, target, revealed, tSel, aSel, gIdx, guesses, gmCandidates, gmPicked, yRes]);
+  }, [phase, players, round, mode, gmIdx, tracks, loadState, sIdx, target, revealed, tSel, aSel, gIdx, guesses, gmCandidates, gmPicked, yRes, gmStage]);
 
   const resumeGame = (s: Snapshot) => {
     setPlayers(s.players); setRound(s.round); setMode(s.mode); setGmIdx(s.gmIdx);
@@ -966,6 +1038,7 @@ function Game() {
     setPrevRanks(s.prevRanks); setRoundStartScores(s.roundStartScores);
     setLoadState(s.tracks.length ? 'ready' : s.loadState);
     setResumeSnap(null);
+    setGmStage(s.gmStage ?? null); setGmRecover(false);
     // Multiplayer: reclaim the room via the hostToken stored in sessionStorage,
     // then resync roster/phase from the server (ADR-5). Audio never auto-resumes.
     setWithPhones(!!s.withPhones);
@@ -977,7 +1050,27 @@ function Game() {
           setRoom(r);
           const client = new MpClient((ev) => mpEventRef.current(ev), setMpStatus);
           mpRef.current = client;
-          client.connect().then(() => client.rejoinNow(r.code, r.hostToken)).catch(() => setMpError('Lost the room connection.'));
+          client.connect().then(() => {
+            client.rejoinNow(r.code, r.hostToken);
+            // Host reload mid-GM-selection: re-send the current stage to the GM's phone.
+            if (s.mode === 'gm' && (s.gmStage === 'year' || s.gmStage === 'pick')) {
+              const gmP = s.players[s.gmIdx];
+              if (gmP && gmP.token) {
+                let payload: any;
+                if (s.gmStage === 'pick') {
+                  payload = { year: s.target, candidates: (s.gmCandidates || []).map((c) => ({ t: c.t, a: c.a })) };
+                } else {
+                  const [lo, hi] = s.range;
+                  const rp = SONGS.filter((x) => x.y >= lo && x.y <= hi && x.p <= s.tier && (s.genre === 'Any' || x.g === s.genre) && (x.w ?? 0) >= MIN_WEEKS);
+                  const m: Record<number, number> = {}; rp.forEach((x) => { m[x.y] = (m[x.y] || 0) + 1; });
+                  const elig = Object.keys(m).map(Number).filter((y) => m[y] >= s.songsPer).sort((a, b) => a - b);
+                  payload = { min: lo, max: hi, eligibleYears: elig };
+                }
+                gmStagePayloadRef.current = payload;
+                client.hostGm(gmP.token, s.gmStage, payload);
+              }
+            }
+          }).catch(() => setMpError('Lost the room connection.'));
         }
       } catch { /* */ }
     }
@@ -1314,6 +1407,21 @@ function Game() {
           </>
         )}
 
+        {/* ===== GM WAIT (GM sets year + songs on their phone) ===== */}
+        {phase === 'gmWait' && gm && (
+          <div className="card gate">
+            <div className="eyebrow" style={{ marginBottom: 14 }}>Round {round} &middot; Game Master</div>
+            <div className="disp" style={{ fontSize: 48, margin: '6px 0 14px', color: 'var(--amberhi)' }}>{gm.name}</div>
+            <div className="muted" style={{ marginBottom: 18 }}>
+              {gmStage === 'pick' ? `${gm.name} is picking the songs on their phone` : `${gm.name} is setting the year on their phone`}&hellip;
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'center', margin: '8px 0 20px' }}>
+              <VuMeter active={true} />
+            </div>
+            <button className="btn wide" onClick={gmRecoverOnHost}>GM picks on this device instead</button>
+          </div>
+        )}
+
         {/* ===== SONG ===== */}
         {phase === 'song' && (
           <>
@@ -1461,8 +1569,11 @@ function Game() {
               <div className="yearbig">{phoneProgress.submitted}<span style={{ color: 'var(--muted)', fontSize: 34 }}> / {phoneProgress.total}</span></div>
               <div className="muted hint" style={{ textAlign: 'center', marginBottom: 16 }}>locked in</div>
               <div className="eyebrow muted" style={{ marginBottom: 8 }}>On their phones</div>
-              {phoneParts.map((p) => (
-                <div key={p.id} className="muted hint" style={{ marginBottom: 4 }}>{p.name}</div>
+              {phoneProgress.in.map((n) => (
+                <div key={'in' + n} className="hint" style={{ marginBottom: 4, color: 'var(--green)' }}>✓ {n}</div>
+              ))}
+              {phoneProgress.waiting.map((n) => (
+                <div key={'w' + n} className="muted hint" style={{ marginBottom: 4 }}>{n} &middot; guessing&hellip;</div>
               ))}
               <button className="btn primary wide" style={{ marginTop: 18 }} onClick={closeCollect}>
                 {phoneProgress.total > 0 && phoneProgress.submitted >= phoneProgress.total ? 'Everyone is in, reveal ▶' : 'Close guessing now ▶'}
