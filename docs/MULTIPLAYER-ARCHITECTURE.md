@@ -92,9 +92,11 @@ API Gateway assigns a new connectionId on every connect; phones on party wifi WI
 
 ## 6. Message protocol (JSON over the socket)
 
-Client→server actions: `createRoom`, `joinRoom {code, name}`, `rejoin {code, token}`, `submitGuess {year}`, `host:phase {phase, payload}`, `host:kick {token}`, `heartbeat`.
-Server→client events: `roomCreated {code, hostToken}`, `joined {token, roster}`, `rosterUpdate`, `phaseChange {phase, payload}` (e.g. openGuess carries the year bounds so the controller renders the dial), `guessProgress {submitted, total}` (counts only — values stay server-side until reveal), `revealGuesses {guesses[]}`, `error {code, msg}`.
-Payload cap ~4KB enforced in the router; unknown actions rejected; every action except createRoom/joinRoom must present a valid token for the room bound to that connection.
+Client→server actions: `createRoom`, `joinRoom {code, name}`, `rejoin {code, token}`, `submitGuess {year}`, `host:phase {phase, payload}`, `host:kick {token}`, `heartbeat`, and (Phase B, GM-from-phone) `gm:year {year}` / `gm:pick {indices}` (from the GM's phone) and `host:gm {token, stage, payload}` (host sets the round's GM and relays a stage).
+Server→client events: `roomCreated {code, hostToken}`, `joined {token, roster}`, `rosterUpdate`, `phaseChange {phase, payload}` (openGuess carries the year bounds so the controller renders the dial), `guessProgress {submitted, total, in: [names], waiting: [names]}` (per-name status now that every player joins by phone; guess VALUES stay server-side until reveal), `revealGuesses {guesses[]}`, `error {code, msg}`, and (Phase B) `gmStage {stage, payload}` (to the GM's phone only; stages: `year` with bounds + eligibleYears, `pick` with candidate title/artist pairs, `done`), `gmYear {year}` / `gmPick {indices}` (relayed to the host only), `gmRejoined {token}` (host re-sends the current stage).
+Payload cap ~4KB enforced in the router; unknown actions rejected; every action except createRoom/joinRoom must present a valid token for the room bound to that connection. `gm:*` actions additionally require the sender to hold the room's current GM token (`gmToken` on META, set by `host:gm`: a single attribute, no schema change). The server validates only structure and token ownership; game validity (year snapping, candidate math) stays host-authoritative (ADR-4).
+
+> **Amendment 2026-07-18 (Phase B):** added the `gm:year` / `gm:pick` / `host:gm` actions and the `gmStage` / `gmYear` / `gmPick` / `gmRejoined` events for GM-from-phone, and extended `guessProgress` with per-name `in`/`waiting` arrays. No table schema change (`gmToken` is one META attribute).
 
 ## 7. Failure modes and answers
 

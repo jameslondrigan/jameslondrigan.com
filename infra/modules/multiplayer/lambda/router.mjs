@@ -175,6 +175,11 @@ async function rejoin(deps, connectionId, msg) {
   log({ roomCode: code, action: 'rejoin', outcome: 'player' });
   await send(deps, connectionId, { event: 'joined', token, phase: meta.phase, roundNo: meta.roundNo, roster: rosterFor(players, { withTokens: false }) });
   await broadcastRoster(deps, code);
+  // If the reconnecting player is mid-GM-selection, flag the host to re-send the
+  // current stage (the host holds the stage state; the server only relays).
+  if (meta.gmToken && token === meta.gmToken) {
+    await send(deps, meta.hostConnectionId, { event: 'gmRejoined', token });
+  }
 }
 
 async function submitGuess(deps, connectionId, msg, conn) {
@@ -202,12 +207,25 @@ async function submitGuess(deps, connectionId, msg, conn) {
   await touchRoom(deps, code);
   log({ roomCode: code, action: 'submitGuess', outcome: 'ok' }); // never log the year
 
-  // guessProgress: COUNTS ONLY to the host. Values stay server-side until reveal.
+  // guessProgress: per-name status to the host (with hybrid gone, every player is
+  // a phone player, so in/waiting is complete). Guess VALUES stay server-side
+  // until reveal. The round's GM (if any) does not guess and is excluded.
   const { meta: m2, players, guesses } = await loadRoom(deps, code);
-  const submitted = guesses.filter((g) => g.SK.startsWith(`GUESS#${m2.roundNo}#`)).length;
-  const total = players.filter((p) => p.connected).length;
+  const gmTok = m2.gmToken || null;
+  const submittedTokens = new Set(
+    guesses.filter((g) => g.SK.startsWith(`GUESS#${m2.roundNo}#`)).map((g) => g.SK.split('#')[2]),
+  );
+  const inNames = [], waitingNames = [];
+  for (const p of players) {
+    const tok = p.SK.slice('PLAYER#'.length);
+    if (tok === gmTok || !p.connected) continue;
+    if (submittedTokens.has(tok)) inNames.push(p.name); else waitingNames.push(p.name);
+  }
   await send(deps, connectionId, { event: 'guessLocked' });
-  await send(deps, m2.hostConnectionId, { event: 'guessProgress', submitted, total });
+  await send(deps, m2.hostConnectionId, {
+    event: 'guessProgress', submitted: inNames.length, total: inNames.length + waitingNames.length,
+    in: inNames, waiting: waitingNames,
+  });
 }
 
 async function hostPhase(deps, connectionId, msg, conn) {
@@ -272,6 +290,51 @@ async function hostKick(deps, connectionId, msg, conn) {
   await broadcastRoster(deps, code);
 }
 
+// GM-from-phone (Phase B). The server only validates STRUCTURE + that the sender
+// holds the room's current GM token; game validity (snapping, candidate math) is
+// the host's job. gm:year / gm:pick are relayed to the host only.
+async function gmRelay(deps, connectionId, msg, conn, kind) {
+  const code = conn && conn.roomCode;
+  const { meta } = code ? await loadRoom(deps, code) : { meta: null };
+  if (!conn || conn.role !== 'player' || !meta) return err(deps, connectionId, 'not_bound', 'Not in a room');
+  if (!meta.gmToken || conn.token !== meta.gmToken) {
+    log({ roomCode: code, action: 'gm:' + kind, outcome: 'rejected_not_gm' });
+    return err(deps, connectionId, 'not_gm', 'You are not the Game Master');
+  }
+  if (kind === 'year') {
+    const year = Number(msg.year);
+    if (!Number.isFinite(year)) return err(deps, connectionId, 'bad_request', 'year must be a number');
+    await touchRoom(deps, code);
+    log({ roomCode: code, action: 'gm:year', outcome: 'relayed' });
+    await send(deps, meta.hostConnectionId, { event: 'gmYear', year });
+  } else {
+    const indices = Array.isArray(msg.indices) ? msg.indices.filter((n) => Number.isInteger(n)) : null;
+    if (!indices || indices.length === 0) return err(deps, connectionId, 'bad_request', 'indices must be a non-empty array of integers');
+    await touchRoom(deps, code);
+    log({ roomCode: code, action: 'gm:pick', outcome: 'relayed' });
+    await send(deps, meta.hostConnectionId, { event: 'gmPick', indices });
+  }
+}
+
+// Host sets the room's current GM and relays a stage to that player only.
+// Stages: year (bounds + eligibleYears), pick (candidate title/artist pairs), done.
+async function hostGm(deps, connectionId, msg, conn) {
+  const code = conn && conn.roomCode;
+  const { meta, players } = code ? await loadRoom(deps, code) : { meta: null };
+  if (!conn || conn.role !== 'host' || !meta || conn.token !== meta.hostToken) {
+    return err(deps, connectionId, 'not_host', 'Host-only action');
+  }
+  const token = String(msg.token || '');
+  const stage = String(msg.stage || '');
+  const payload = (msg.payload && typeof msg.payload === 'object') ? msg.payload : {};
+  await deps.update(roomPk(code), 'META', { gmToken: token, ttl: ttlValue(deps.now()) });
+  const gmPlayer = players.find((p) => p.SK === playerSk(token));
+  log({ roomCode: code, action: 'host:gm', outcome: gmPlayer && gmPlayer.connectionId ? 'delivered' : 'no_target', stage });
+  if (gmPlayer && gmPlayer.connectionId) {
+    await send(deps, gmPlayer.connectionId, { event: 'gmStage', stage, payload });
+  }
+}
+
 async function heartbeat(deps, connectionId, msg, conn) {
   if (conn && conn.roomCode) await touchRoom(deps, conn.roomCode);
   return send(deps, connectionId, { event: 'pong' });
@@ -298,7 +361,7 @@ async function onDisconnect(deps, connectionId) {
 // ── Router ────────────────────────────────────────────────────────────────────
 
 // Token-bound actions require the connection to already be in a room.
-const BOUND_ACTIONS = new Set(['submitGuess', 'host:phase', 'host:kick', 'heartbeat']);
+const BOUND_ACTIONS = new Set(['submitGuess', 'host:phase', 'host:kick', 'heartbeat', 'gm:year', 'gm:pick', 'host:gm']);
 
 export async function route(event, deps) {
   const rc = event.requestContext || {};
@@ -336,6 +399,9 @@ export async function route(event, deps) {
     if (action === 'host:phase') { await hostPhase(deps, connectionId, msg, conn); return { statusCode: 200 }; }
     if (action === 'host:kick') { await hostKick(deps, connectionId, msg, conn); return { statusCode: 200 }; }
     if (action === 'heartbeat') { await heartbeat(deps, connectionId, msg, conn); return { statusCode: 200 }; }
+    if (action === 'gm:year') { await gmRelay(deps, connectionId, msg, conn, 'year'); return { statusCode: 200 }; }
+    if (action === 'gm:pick') { await gmRelay(deps, connectionId, msg, conn, 'pick'); return { statusCode: 200 }; }
+    if (action === 'host:gm') { await hostGm(deps, connectionId, msg, conn); return { statusCode: 200 }; }
 
     // Unreachable (BOUND_ACTIONS is exhaustive), but keep a safe default.
     await err(deps, connectionId, 'unknown_action', `Unknown action: ${action}`);
