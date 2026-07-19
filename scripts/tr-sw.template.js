@@ -69,23 +69,35 @@ self.addEventListener('fetch', (e) => {
     return;
   }
 
-  // Audio clips: runtime cache-as-you-play, LRU-capped so offline replay works.
+  // Audio clips: runtime cache-as-you-play, LRU-capped so previously heard songs
+  // can replay offline. The SW must NEVER turn a working audio request into a
+  // failure, so:
+  //  - Range requests pass straight through (media elements send them; the Cache
+  //    API can't store the resulting 206, and seeking needs the live network).
+  //  - Only complete 200 responses are cached (never 206/opaque/errors).
+  //  - The whole handler is wrapped; any internal error falls back to plain fetch,
+  //    and it always resolves with a Response (never undefined).
   if (/\.(m4a|aac|mp3)(\?|$)/i.test(url.pathname) || url.hostname.endsWith('itunes.apple.com')) {
-    e.respondWith(caches.open(AUDIO_CACHE).then(async (c) => {
-      const cached = await c.match(req);
-      if (cached) {
-        // move-to-most-recent for LRU ordering
-        const cp = cached.clone();
-        c.delete(req).then(() => c.put(req, cp)).catch(() => {});
-        return cached;
+    if (req.headers.has('range')) return; // do not intercept Range requests at all
+    e.respondWith((async () => {
+      try {
+        const c = await caches.open(AUDIO_CACHE);
+        const cached = await c.match(req);
+        if (cached) {
+          // move-to-most-recent for LRU ordering (never let this reject the response)
+          const cp = cached.clone();
+          c.delete(req).then(() => c.put(req, cp)).catch(() => {});
+          return cached;
+        }
+        const res = await fetch(req);
+        if (res && res.status === 200 && (res.type === 'basic' || res.type === 'cors')) {
+          c.put(req, res.clone()).then(() => trimCache(AUDIO_CACHE, AUDIO_MAX)).catch(() => {});
+        }
+        return res;
+      } catch (err) {
+        return fetch(req); // any internal error -> plain network, never undefined
       }
-      const res = await fetch(req);
-      if (res && (res.ok || res.type === 'opaque')) {
-        await c.put(req, res.clone());
-        trimCache(AUDIO_CACHE, AUDIO_MAX);
-      }
-      return res;
-    }).catch(() => caches.match(req)));
+    })());
     return;
   }
 
