@@ -791,7 +791,7 @@ function Game() {
     const weighted = [...yearPool].sort((a, b) => ((b.w ?? 0) + Math.random() * 8) - ((a.w ?? 0) + Math.random() * 8));
     const cands = weighted.slice(0, songsPer + 5);
     setGmCandidates(cands);
-    const payload = { year: yr, candidates: cands.map((c) => ({ t: c.t, a: c.a })) };
+    const payload = { year: yr, n: songsPer, candidates: cands.map((c) => ({ t: c.t, a: c.a })) };
     gmStagePayloadRef.current = payload;
     setGmStage('pick');
     if (gm.token) mpRef.current?.hostGm(gm.token, 'pick', payload);
@@ -1058,7 +1058,7 @@ function Game() {
               if (gmP && gmP.token) {
                 let payload: any;
                 if (s.gmStage === 'pick') {
-                  payload = { year: s.target, candidates: (s.gmCandidates || []).map((c) => ({ t: c.t, a: c.a })) };
+                  payload = { year: s.target, n: s.songsPer, candidates: (s.gmCandidates || []).map((c) => ({ t: c.t, a: c.a })) };
                 } else {
                   const [lo, hi] = s.range;
                   const rp = SONGS.filter((x) => x.y >= lo && x.y <= hi && x.p <= s.tier && (s.genre === 'Any' || x.g === s.genre) && (x.w ?? 0) >= MIN_WEEKS);

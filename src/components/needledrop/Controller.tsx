@@ -73,7 +73,15 @@ const CSS = `
 @media(prefers-reduced-motion:reduce){.tc .btn:active{transform:none}}
 `;
 
-type View = 'connecting' | 'join' | 'waiting' | 'guessing' | 'locked' | 'closed' | 'kicked';
+type View = 'connecting' | 'join' | 'waiting' | 'guessing' | 'locked' | 'closed' | 'kicked' | 'gmYear' | 'gmSent' | 'gmPick';
+
+const nearestOf = (arr: number[], v: number) => (arr.length ? arr.reduce((b, y) => (Math.abs(y - v) < Math.abs(b - v) ? y : b), arr[0]) : v);
+const stepOf = (arr: number[], from: number, dir: number) => {
+  if (!arr.length) return from;
+  const i = arr.indexOf(from);
+  if (i === -1) return nearestOf(arr, from);
+  return arr[Math.max(0, Math.min(arr.length - 1, i + dir))];
+};
 
 export default function Controller() {
   const [view, setView] = useState<View>('connecting');
@@ -83,6 +91,15 @@ export default function Controller() {
   const [bounds, setBounds] = useState<RoundInfo | null>(null);
   const [tuner, setTuner] = useState(1990);
   const [hostAway, setHostAway] = useState(false);
+  // GM-from-phone stages
+  const [gmMin, setGmMin] = useState(1958);
+  const [gmMax, setGmMax] = useState(2026);
+  const [gmEligible, setGmEligible] = useState<number[]>([]);
+  const [gmTuner, setGmTuner] = useState(1990);
+  const [gmCandidates, setGmCandidates] = useState<{ t: string; a: string }[]>([]);
+  const [gmN, setGmN] = useState(3);
+  const [gmPicked, setGmPicked] = useState<number[]>([]);
+  const [gmMsg, setGmMsg] = useState('');
 
   const mpRef = useRef<MpClient | null>(null);
   const evRef = useRef<(e: MpEvent) => void>(() => {});
@@ -113,6 +130,21 @@ export default function Controller() {
     } else if (e.event === 'guessLocked') {
       const r = readRound(); if (r) writeRound({ ...r, locked: true });
       setView('locked');
+    } else if (e.event === 'gmStage') {
+      const p = e.payload || {};
+      setHostAway(false);
+      if (e.stage === 'year') {
+        const el = Array.isArray(p.eligibleYears) ? p.eligibleYears : [];
+        setGmEligible(el); setGmMin(p.min ?? 1958); setGmMax(p.max ?? 2026);
+        setGmTuner(nearestOf(el, Math.round(((p.min ?? 1958) + (p.max ?? 2026)) / 2)));
+        setView('gmYear');
+      } else if (e.stage === 'pick') {
+        setGmCandidates(Array.isArray(p.candidates) ? p.candidates : []);
+        setGmN(p.n || 3); setGmPicked([]); // partial selection cleared on (re)entry
+        setView('gmPick');
+      } else if (e.stage === 'done') {
+        setView('waiting');
+      }
     } else if (e.event === 'error') {
       if (e.code === 'name_taken') { setError('That name is taken. Try another.'); setView('join'); }
       else if (e.code === 'no_room') { setError('No room with that code.'); setView('join'); }
@@ -153,11 +185,22 @@ export default function Controller() {
   const nudge = (d: number) => { if (!bounds) return; const v = Math.max(bounds.min, Math.min(bounds.max, tuner + d)); if (v !== tuner) { tick(); setTuner(v); } };
   const lockIn = () => { mpRef.current?.submitGuess(tuner); const r = readRound(); if (r) writeRound({ ...r, locked: true }); setView('locked'); };
 
+  // GM year dial: snaps to eligible years only; nudges jump between them.
+  const onGmDial = (v: number) => { const s = nearestOf(gmEligible, v); if (s !== gmTuner) { tick(); setGmTuner(s); } };
+  const gmNudge = (d: number) => { const s = stepOf(gmEligible, gmTuner, d); if (s !== gmTuner) { tick(); setGmTuner(s); } };
+  const lockGmYear = () => { mpRef.current?.gmYear(gmTuner); setGmMsg('Year locked in. Waiting for the song list…'); setView('gmSent'); };
+  const toggleGmPick = (i: number) => setGmPicked((cur) => (cur.includes(i) ? cur.filter((x) => x !== i) : (cur.length >= gmN ? cur : [...cur, i])));
+  const confirmGmPick = () => { if (gmPicked.length !== gmN) return; mpRef.current?.gmPick(gmPicked); setGmMsg('Songs locked in.'); setView('gmSent'); };
+
   const ticks: { y: number; pct: number; dec: boolean }[] = [];
   if (bounds) {
     for (let y = Math.ceil(bounds.min / 5) * 5; y <= bounds.max; y += 5) {
       ticks.push({ y, pct: ((y - bounds.min) / (bounds.max - bounds.min)) * 100, dec: y % 10 === 0 });
     }
+  }
+  const gmTicks: { y: number; pct: number; dec: boolean }[] = [];
+  for (let y = Math.ceil(gmMin / 5) * 5; y <= gmMax; y += 5) {
+    gmTicks.push({ y, pct: ((y - gmMin) / (gmMax - gmMin)) * 100, dec: y % 10 === 0 });
   }
 
   return (
@@ -245,6 +288,57 @@ export default function Controller() {
           <div className="card" style={{ textAlign: 'center' }}>
             <div className="muted">You&apos;ve left the room.</div>
             <button className="btn" style={{ marginTop: 14 }} onClick={() => { setError(null); setView('join'); }}>Join again</button>
+          </div>
+        )}
+
+        {view === 'gmYear' && (
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 6, textAlign: 'center', color: 'var(--amberhi)' }}>You&apos;re the Game Master this round</div>
+            <div className="muted hint" style={{ textAlign: 'center', marginBottom: 8 }}>Set the year for everyone to guess</div>
+            <div className="yearbig">{gmTuner}</div>
+            <div className="tuner">
+              <div className="ticks">
+                {gmTicks.map((t) => (
+                  <React.Fragment key={t.y}>
+                    <div className={'tick' + (t.dec ? ' dec' : '')} style={{ left: t.pct + '%' }} />
+                    {t.dec && <div className="ticklab" style={{ left: t.pct + '%' }}>&apos;{String(t.y).slice(2)}</div>}
+                  </React.Fragment>
+                ))}
+              </div>
+              <input className="dial" type="range" min={gmMin} max={gmMax} value={gmTuner}
+                onChange={(e) => onGmDial(+e.target.value)} />
+            </div>
+            <div className="nudge-row">
+              <button className="btn nudge" onClick={() => gmNudge(-1)} aria-label="Previous eligible year">&minus;</button>
+              <button className="btn primary" onClick={lockGmYear}>Lock in year ▶</button>
+              <button className="btn nudge" onClick={() => gmNudge(1)} aria-label="Next eligible year">+</button>
+            </div>
+            <div className="muted hint" style={{ textAlign: 'center', marginTop: 12 }}>The dial snaps to years with enough songs.</div>
+          </div>
+        )}
+
+        {view === 'gmPick' && (
+          <div className="card">
+            <div className="eyebrow" style={{ marginBottom: 6, textAlign: 'center', color: 'var(--amberhi)' }}>You&apos;re the Game Master this round</div>
+            <div className="muted hint" style={{ marginBottom: 12 }}>Pick {gmN} songs for this round. ({gmPicked.length}/{gmN})</div>
+            {gmCandidates.map((s, i) => {
+              const sel = gmPicked.includes(i);
+              return (
+                <button key={i} className={'btn' + (sel ? ' primary' : '')} style={{ marginBottom: 8, textAlign: 'left' }}
+                  onClick={() => toggleGmPick(i)} disabled={!sel && gmPicked.length >= gmN}>
+                  <span style={{ fontWeight: 600 }}>{s.t}</span> <span className="muted">&middot; {s.a}</span>
+                </button>
+              );
+            })}
+            <button className="btn primary" style={{ marginTop: 6 }} disabled={gmPicked.length !== gmN} onClick={confirmGmPick}>Confirm songs ▶</button>
+          </div>
+        )}
+
+        {view === 'gmSent' && (
+          <div className="card" style={{ textAlign: 'center' }}>
+            <div className="eyebrow" style={{ marginBottom: 8, color: 'var(--amberhi)' }}>Game Master</div>
+            <div className="big" style={{ color: 'var(--green)', marginBottom: 8 }}>Sent ✓</div>
+            <div className="muted">{gmMsg || 'Waiting for the big screen.'}</div>
           </div>
         )}
       </div>
